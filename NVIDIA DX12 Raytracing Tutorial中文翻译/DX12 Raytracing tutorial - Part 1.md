@@ -1,6 +1,6 @@
 [TOC]
 
-#DX12 Raytracing tutorial - Part 1
+# DirectX 12光线追踪——第一部分
 
 作者：[Martin-Karl Lefrançois](https://devblogs.nvidia.com/author/mlefrancois/) 和[Pascal Gautron](https://devblogs.nvidia.com/author/pgautron/)
 
