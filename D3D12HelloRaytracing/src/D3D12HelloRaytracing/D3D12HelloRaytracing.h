@@ -185,6 +185,7 @@ private:
 	ComPtr< ID3D12Resource > m_cameraBuffer;
 	ComPtr< ID3D12DescriptorHeap > m_constantbufferHeap;
 	uint32_t m_cameraBufferSize = 0;
+    uint8_t* m_cameraBufferData = nullptr;
 
 	void CreateConstantBuffer();
 	void UpdateConstantBuffer();

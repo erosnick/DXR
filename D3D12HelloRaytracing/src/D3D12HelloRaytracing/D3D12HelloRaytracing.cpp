@@ -1274,6 +1274,8 @@ void D3D12HelloRaytracing::CreateCameraBuffer()
     // descriptors directly 
     D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_constantbufferHeap->GetCPUDescriptorHandleForHeapStart();
     m_device->CreateConstantBufferView(&cbvDesc, srvHandle);
+
+	ThrowIfFailed(m_cameraBuffer->Map(0, nullptr, (void**)&m_cameraBufferData));
 }
 
 // #DXR Extra: Perspective Camera
@@ -1305,9 +1307,7 @@ void D3D12HelloRaytracing::UpdateCameraBuffer()
     matrices[3] = XMMatrixInverse(&det, matrices[1]); 
     
     // Copy the matrix contents 
-    uint8_t *pData; ThrowIfFailed(m_cameraBuffer->Map(0, nullptr, (void **)&pData)); 
-    memcpy_s(pData, m_cameraBufferSize, matrices.data(), m_cameraBufferSize);
-    m_cameraBuffer->Unmap(0, nullptr);
+    memcpy_s(m_cameraBufferData, m_cameraBufferSize, matrices.data(), m_cameraBufferSize);
 }
 
 void D3D12HelloRaytracing::CreateConstantBuffer()
