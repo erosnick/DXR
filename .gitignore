@@ -1,3 +1,8 @@
+D3D12HelloRaytracing/src/.vs/*
+D3D12HelloRaytracing/src/D3D12HelloRaytracing/obj/*
+D3D12HelloRaytracing/src/D3D12HelloRaytracing/bin/*
+JSON/*
+
 # Prerequisites
 *.d
 
