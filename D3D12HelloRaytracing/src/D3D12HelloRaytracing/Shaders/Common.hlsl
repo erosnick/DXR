@@ -6,7 +6,15 @@
 struct HitInfo
 {
     float4 colorAndDistance;
-    float4 normal;
+    float3 normal;
+    int depth;
+};
+
+// #DXR Extra - Another ray type
+// Ray payload for the shadow rays
+struct ShadowHitInfo
+{
+    bool isHit;
 };
 
 // Attributes output by the raytracing when hitting a surface,

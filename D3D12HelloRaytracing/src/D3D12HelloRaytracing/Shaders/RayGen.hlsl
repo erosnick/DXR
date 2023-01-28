@@ -20,6 +20,7 @@ void RayGen() {
     // Initialize the ray payload
     HitInfo payload;
     payload.colorAndDistance = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    payload.depth = 0;
 
     // Get the location within the dispatched 2D grid of work items
     // (often maps to pixels, so this could represent a pixel coordinate).
