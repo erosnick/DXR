@@ -12,6 +12,8 @@
 #include "stdafx.h"
 #include "D3D12HelloRaytracing.h"
 
+#include "DDSTextureLoader12.h"
+
 #include "DXRHelper.h"
 #include "nv_helpers_dx12/BottomLevelASGenerator.h"
 #include "nv_helpers_dx12/RaytracingPipelineGenerator.h"
@@ -328,10 +330,18 @@ void D3D12HelloRaytracing::LoadAssets()
     // Create a vertex buffer for a ground plane, similarly to the triangle definition above
 	CreatePlaneVB();
 
-    model.load("Models/bunny.obj");
+    //model.load("Models/bunny.obj");
+	//model.load("Models/dragon.obj");
+	model.load("Models/cube.obj");
 	
     createModelVertexBuffer();
 	createModelIndexBuffer();
+
+    //createSkyboxDescriptorHeap();
+    loadSkyboxTexture();
+    //createSkyboxShaderResourceView();
+    createSkyboxSamplerDescriptorHeap();
+    createSkyboxSampler();
 }
 
 // Update frame-based values.
@@ -433,7 +443,7 @@ void D3D12HelloRaytracing::PopulateCommandList()
 
 		// #DXR Extra: Per-Instance Data
         // In a way similar to triangle rendering, rasterize the plane
-		m_commandList->IASetVertexBuffers(0, 1, &m_planeBufferView);
+		m_commandList->IASetVertexBuffers(0, 1, &m_planeVertexBufferView);
 
 		auto constantBufferDescriptorHandle = m_constantbufferHeap->GetGPUDescriptorHandleForHeapStart();
 
@@ -471,7 +481,7 @@ void D3D12HelloRaytracing::PopulateCommandList()
     {
 		// Bind the descriptor heap giving access to the top-level acceleration
         // structure, as well as the ray tracing output
-		std::vector<ID3D12DescriptorHeap*> heaps = { m_srvUavHeap.Get() };
+		std::vector<ID3D12DescriptorHeap*> heaps = { m_srvUavHeap.Get(), m_skyboxSamplerDescriptorHeap.Get() };
 		m_commandList->SetDescriptorHeaps(static_cast<uint32_t>(heaps.size()), heaps.data());
 
 		// On the last frame, the ray tracing output was used as a copy source, to
@@ -485,15 +495,15 @@ void D3D12HelloRaytracing::PopulateCommandList()
 		m_commandList->ResourceBarrier(1, &transition);
 
 		// Setup the ray tracing task
-		D3D12_DISPATCH_RAYS_DESC desc = {};
+		D3D12_DISPATCH_RAYS_DESC raysDesc = {};
 
 		// The layout of the SBT is as follows: ray generation shader, miss
 		// shaders, hit groups. As described in the CreateShaderBindingTable method,
 		// all SBT entries of a given type have the same size to allow a fixed stride.
 		// The ray generation shaders are always at the beginning of the SBT.
 		uint32_t rayGenerationSectionSizeInBytes = m_sbtHelper.GetRayGenSectionSize();
-		desc.RayGenerationShaderRecord.StartAddress = m_sbtStorage->GetGPUVirtualAddress();
-		desc.RayGenerationShaderRecord.SizeInBytes = rayGenerationSectionSizeInBytes;
+        raysDesc.RayGenerationShaderRecord.StartAddress = m_sbtStorage->GetGPUVirtualAddress();
+        raysDesc.RayGenerationShaderRecord.SizeInBytes = rayGenerationSectionSizeInBytes;
 
 		// The miss shaders are in the second SBT section, right after the ray
         // generation shader. We have one miss shader for the camera rays and one
@@ -501,31 +511,31 @@ void D3D12HelloRaytracing::PopulateCommandList()
         // also indicate the stride between the two miss shaders, which is the size
         // of a SBT entry
 		uint32_t missSectionSizeInBytes = m_sbtHelper.GetMissSectionSize();
-		desc.MissShaderTable.StartAddress = m_sbtStorage->GetGPUVirtualAddress() + 
+        raysDesc.MissShaderTable.StartAddress = m_sbtStorage->GetGPUVirtualAddress() +
                                             rayGenerationSectionSizeInBytes;
-		desc.MissShaderTable.SizeInBytes = missSectionSizeInBytes;
-		desc.MissShaderTable.StrideInBytes = m_sbtHelper.GetMissEntrySize();
+        raysDesc.MissShaderTable.SizeInBytes = missSectionSizeInBytes;
+        raysDesc.MissShaderTable.StrideInBytes = m_sbtHelper.GetMissEntrySize();
 
 		// The hit groups section start after the miss shaders. In this sample we
         // have one 1 hit group for the triangle
 		uint32_t hitGroupsSectionSize = m_sbtHelper.GetHitGroupSectionSize();
-		desc.HitGroupTable.StartAddress = m_sbtStorage->GetGPUVirtualAddress() + 
+        raysDesc.HitGroupTable.StartAddress = m_sbtStorage->GetGPUVirtualAddress() +
                                           rayGenerationSectionSizeInBytes + 
                                           missSectionSizeInBytes;
 
-		desc.HitGroupTable.SizeInBytes = hitGroupsSectionSize;
-		desc.HitGroupTable.StrideInBytes = m_sbtHelper.GetHitGroupEntrySize();
+        raysDesc.HitGroupTable.SizeInBytes = hitGroupsSectionSize;
+        raysDesc.HitGroupTable.StrideInBytes = m_sbtHelper.GetHitGroupEntrySize();
 
 		// Dimensions of the image to render, identical to a kernel launch dimension
-		desc.Width = GetWidth();
-		desc.Height = GetHeight();
-		desc.Depth = 1;
+        raysDesc.Width = GetWidth();
+        raysDesc.Height = GetHeight();
+        raysDesc.Depth = 1;
 
 		// Bind the ray tracing pipeline
 		m_commandList->SetPipelineState1(m_rayTracingStateObject.Get());
 
 		// Dispatch the rays and write to the ray tracing output
-		m_commandList->DispatchRays(&desc);
+		m_commandList->DispatchRays(&raysDesc);
 
 		// The ray tracing output needs to be copied to the actual render target used
         // for display. For this, we need to transition the ray tracing output from a
@@ -798,15 +808,17 @@ void D3D12HelloRaytracing::CreateAccelerationStructures()
     AccelerationStructureBuffers bottomLevelBuffers = CreateBottomLevelAS({{m_vertexBuffer.Get(), 3}}); 
 
 	// #DXR Extra: Per-Instance Data
-	AccelerationStructureBuffers planeBottomLevelBuffers = CreateBottomLevelAS({ {m_planeBuffer.Get(), 6} });
+	AccelerationStructureBuffers planeBottomLevelBuffers = CreateBottomLevelAS({ {m_planeVertexBuffer.Get(), 6} });
 
 	AccelerationStructureBuffers modelBottomLevelBuffers = CreateBottomLevelAS(
         { {m_modelVertexBuffer.Get(), model.mesh.vertexCount } },
          { {m_modelIndexBuffer.Get(), model.mesh.indexCount} });
 
-    auto translation = XMMatrixTranslation(0.0f, -0.75f, 0.3f);
+	//auto translation = XMMatrixTranslation(0.0f, -0.75f, 0.3f);
+	auto translation = XMMatrixTranslation(0.0f, -0.5f, 0.3f);
     auto rotation = XMMatrixRotationY(XM_PI);
-    auto scale = XMMatrixScaling(0.25f, 0.25f, 0.25f);
+	//auto scale = XMMatrixScaling(0.25f, 0.25f, 0.25f);
+	auto scale = XMMatrixScaling(0.5f, 0.5f, 0.5f);
 	
     auto transform = scale * rotation * translation;
 
@@ -873,8 +885,12 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateRayGenRootSignature()
 ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateMissRootSignature()
 {
     nv_helpers_dx12::RootSignatureGenerator rootSignatureGenerator;
-    
-    return rootSignatureGenerator.Generate(m_device.Get(), true);
+	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 4);
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{0 /*t0*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+     0/*1st slot of the heap*/},
+	});
+	return rootSignatureGenerator.Generate(m_device.Get(), true);
 }
 
 //-----------------------------------------------------------------------------
@@ -883,7 +899,11 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateMissRootSignature()
 //
 ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateHitRootSignature()
 {
+    // 和常规的Shader不一样，DXR的Shader中引用根签名的参数，不需要调用SetGraphicsRootDescriptorTable()
     nv_helpers_dx12::RootSignatureGenerator rootSignatureGenerator;
+
+    // 这里创建的三个根参数在Shader中都是StructuredBuffer，StructuredBuffer 可以像 cbuffer 一样
+    // 通过 D3D12_ROOT_PARAMETER_TYPE_SRV 绑定资源。所以不必创建 Shader Resource View
 	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 0);
 	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 1);
 	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 2);
@@ -891,9 +911,24 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateHitRootSignature()
 	// #DXR Extra - Another ray type
     // Add a single range pointing to the TLAS in the heap
     rootSignatureGenerator.AddHeapRangesParameter({
-		{3 /*t3*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-		 1/*2nd slot of the heap*/},
-		});
+	{
+        3 /*t3*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		1 /*2nd slot of the heap*/},
+	});
+
+    // 天空盒的纹理
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{
+        4 /*t4*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+	    4 /*5th slot of the heap*/},
+	});
+
+    // 天空盒的采样器
+	rootSignatureGenerator.AddHeapRangesParameter({
+    {
+        0 /*s0*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+        0 /*1st slot of the heap*/},
+	});
 
     return rootSignatureGenerator.Generate(m_device.Get(), true);
 }
@@ -979,7 +1014,7 @@ void D3D12HelloRaytracing::CreateRayTracingPipeline()
     // exchanged between shaders, such as the HitInfo structure in the HLSL code.
     // It is important to keep this value as low as possible as a too high value
     // would result in unnecessary memory consumption and cache trashing.
-	pipeline.SetMaxPayloadSize(8 * sizeof(float)); // RGB + distance
+	pipeline.SetMaxPayloadSize(8 * sizeof(float)); // RGB + distance + depth
 
 	// Upon hitting a surface, DXR can provide several attributes to the hit. In
 	// our sample we just use the barycentric coordinates defined by the weights
@@ -1039,12 +1074,15 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 {
 	// #DXR Extra: Perspective Camera
 	// Create a SRV/UAV/CBV descriptor heap. We need 3 entries - 1 SRV for the TLAS, 1 UAV for the
-	// ray tracing output and 1 CBV for the camera matrices
-    m_srvUavHeap = nv_helpers_dx12::CreateDescriptorHeap( m_device.Get(), 4, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true); 
+	// ray tracing output and 1 CBV for the camera matrices 1 SRV for skybox
+    m_srvUavHeap = nv_helpers_dx12::CreateDescriptorHeap( m_device.Get(), 5, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true); 
     
+    m_srvUavHeap->SetName(L"m_srvUavHeap");
+
+	// Slot0 - 对应RayGen.hlsl中的RWTexture2D< float4 > gOutput : register(u0);
     // Get a handle to the heap memory on the CPU side, to be able to write the 
     // descriptors directly 
-    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart(); 
+    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
     
     // Create the UAV. Based on the root signature we created it is the first 
     // entry. The Create*View methods write the view information directly into 
@@ -1053,6 +1091,9 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
     uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D; 
     m_device->CreateUnorderedAccessView(m_outputResource.Get(), nullptr, &uavDesc, srvHandle); 
     
+	// Slot1 - 对应RayGen.hlsl和Hit.hlsl中的：
+	// Ray tracing acceleration structure, accessed as a SRV
+	// RaytracingAccelerationStructure SceneBVH : register(t0);
     // Add the Top Level AS SRV right after the ray tracing output buffer 
     srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize( D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV); 
     
@@ -1064,6 +1105,15 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
     // Write the acceleration structure view in the heap 
     m_device->CreateShaderResourceView(nullptr, &srvDesc, srvHandle);
 
+	// Slot2 - 对应RayGen.hlsl中的
+	// #DXR Extra: Perspective Camera
+	// cbuffer CameraParams : register(b0)
+	// {
+	//     float4x4 view;
+	//     float4x4 projection;
+	//	   float4x4 viewInverse;
+	//	   float4x4 projectionInverse;
+	// }
 	// #DXR Extra: Perspective Camera
     // Add the constant buffer for the camera after the TLAS
 	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -1074,6 +1124,8 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 	cbvDesc.SizeInBytes = m_cameraBufferSize;
 	m_device->CreateConstantBufferView(&cbvDesc, srvHandle);
 
+	// Slot3 - 对应Hit.hlsl中的：
+    // StructuredBuffer<InstanceProperties> instanceProperties : register(t2);
 	//# DXR Extra - Simple Lighting
 	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1086,6 +1138,31 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 
 	// Write the per-instance properties buffer view in the heap
 	m_device->CreateShaderResourceView(m_instanceProperties.Get(), &srvDesc, srvHandle);
+
+	// Slot4 - 对应Hit.hlsl中的：
+    // Texture2D environmentTexture : register(t4);
+	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    // 创建天空盒的SRV
+	D3D12_RESOURCE_DESC textureDesc = m_skyboxTexture->GetDesc();
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC skyboxShaderResourceViewDesc{};
+    skyboxShaderResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	//skyboxShaderResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+	skyboxShaderResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+
+    skyboxShaderResourceViewDesc.Format = textureDesc.Format;
+
+	if (skyboxShaderResourceViewDesc.ViewDimension == D3D12_SRV_DIMENSION_TEXTURECUBE)
+	{
+        skyboxShaderResourceViewDesc.TextureCube.MipLevels = textureDesc.MipLevels;
+	}
+	else
+	{
+        skyboxShaderResourceViewDesc.Texture2D.MipLevels = textureDesc.MipLevels;
+	}
+
+	m_device->CreateShaderResourceView(m_skyboxTexture.Get(), &skyboxShaderResourceViewDesc, srvHandle);
 }
 
 //-----------------------------------------------------------------------------
@@ -1108,6 +1185,11 @@ void D3D12HelloRaytracing::CreateShaderBindingTable()
     D3D12_GPU_DESCRIPTOR_HANDLE srvUavHeapHandle = m_srvUavHeap->GetGPUDescriptorHandleForHeapStart();
 
 	auto heapPointer = reinterpret_cast<uint64_t*>(srvUavHeapHandle.ptr);
+	auto skyboxTexturePointer = reinterpret_cast<uint64_t*>(srvUavHeapHandle.ptr + m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * 4);
+
+	D3D12_GPU_DESCRIPTOR_HANDLE skyboxSamplerDescriptorHeapHandle = m_skyboxSamplerDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+	auto skyboxSamplerPointer = reinterpret_cast<uint64_t*>(skyboxSamplerDescriptorHeapHandle.ptr);
 
     // The ray generation only uses heap data 
     m_sbtHelper.AddRayGenerationProgram(L"RayGen", {heapPointer}); 
@@ -1127,7 +1209,9 @@ void D3D12HelloRaytracing::CreateShaderBindingTable()
     // ModelHitGroup
     // ShadowHitGroup
     // 也就是说现在有三种类型的实例(三角形，平面，加载的.obj模型)，每种实例均有两个HitGroup
-    // 
+	// HitGroup, PlaneHitGroup和ModelHitGroup都用到了
+    // StructuredBuffer<STriVertex> BTriVertex : register(t0);
+    // 对应inputData的第一个参数
     // Adding the triangle hit shader 
     m_sbtHelper.AddHitGroup(L"HitGroup", { (void*)(m_vertexBuffer->GetGPUVirtualAddress()) });
 
@@ -1136,7 +1220,7 @@ void D3D12HelloRaytracing::CreateShaderBindingTable()
 
 	// #DXR Extra: Per-Instance Data
     // Adding the plane
-	m_sbtHelper.AddHitGroup(L"PlaneHitGroup", { (void*)(m_planeBuffer->GetGPUVirtualAddress()) });
+	m_sbtHelper.AddHitGroup(L"PlaneHitGroup", { (void*)(m_planeVertexBuffer->GetGPUVirtualAddress()) });
 
 	// #DXR Extra - Another ray type
 	m_sbtHelper.AddHitGroup(L"ShadowHitGroup", {});
@@ -1196,20 +1280,20 @@ void D3D12HelloRaytracing::CreatePlaneVB()
         &bufferResource, 
         D3D12_RESOURCE_STATE_GENERIC_READ, 
         nullptr, 
-        IID_PPV_ARGS(&m_planeBuffer))); 
+        IID_PPV_ARGS(&m_planeVertexBuffer))); 
         
     // Copy the triangle data to the vertex buffer. 
     UINT8 *pVertexDataBegin; CD3DX12_RANGE readRange( 0, 0); 
         
     // We do not intend to read from this resource on the CPU. 
-    ThrowIfFailed(m_planeBuffer->Map( 0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin))); 
+    ThrowIfFailed(m_planeVertexBuffer->Map( 0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin))); 
     memcpy_s(pVertexDataBegin, sizeof(planeVertices), planeVertices, sizeof(planeVertices));
-    m_planeBuffer->Unmap(0, nullptr);
+    m_planeVertexBuffer->Unmap(0, nullptr);
         
     // Initialize the vertex buffer view. 
-    m_planeBufferView.BufferLocation = m_planeBuffer->GetGPUVirtualAddress(); 
-    m_planeBufferView.StrideInBytes = sizeof(Vertex); 
-    m_planeBufferView.SizeInBytes = planeBufferSize;
+    m_planeVertexBufferView.BufferLocation = m_planeVertexBuffer->GetGPUVirtualAddress(); 
+    m_planeVertexBufferView.StrideInBytes = sizeof(Vertex); 
+    m_planeVertexBufferView.SizeInBytes = planeBufferSize;
 }
 
 void D3D12HelloRaytracing::CreateGlobalConstantBuffer()
@@ -1478,4 +1562,144 @@ void D3D12HelloRaytracing::UpdateInstancePropertiesBuffer()
         current->objectToWorld = instance.second;
         current++;
 	}
+}
+
+void D3D12HelloRaytracing::loadSkyboxTexture()
+{
+	//加载Skybox的 Cube Map 需要的变量
+	std::unique_ptr<uint8_t[]> ddsData;
+	std::vector<D3D12_SUBRESOURCE_DATA> subResources;
+	DDS_ALPHA_MODE alphaMode = DDS_ALPHA_MODE_UNKNOWN;
+	bool bIsCube = false;
+
+	//TCHAR* skyboxTextureFile = L"Textures/Day_1024.dds";
+	TCHAR* skyboxTextureFile = L"Textures/bricks.dds";
+
+	ID3D12Resource* skyboxTextureResource = nullptr;
+
+	ThrowIfFailed(LoadDDSTextureFromFile(
+		m_device.Get(),
+		skyboxTextureFile,
+		&skyboxTextureResource,
+		ddsData,
+		subResources,
+		SIZE_MAX,
+		&alphaMode,
+		&bIsCube));
+
+	// 上面函数加载的纹理在隐式默认堆上，两个Copy动作需要我们自己完成
+	m_skyboxTexture.Attach(skyboxTextureResource);
+
+	// 获取skybox的资源大小，并创建上传堆
+	auto skyboxTextureUploadBufferSize = GetRequiredIntermediateSize(m_skyboxTexture.Get(), 0, static_cast<uint32_t>(subResources.size()));
+
+	D3D12_HEAP_DESC skyboxUploadHeapDesc{};
+	skyboxUploadHeapDesc.Alignment = 0;
+	skyboxUploadHeapDesc.SizeInBytes = ROUND_UP(2 * skyboxTextureUploadBufferSize, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+	skyboxUploadHeapDesc.Properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+	skyboxUploadHeapDesc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+	skyboxUploadHeapDesc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+	// 上传堆就是缓冲，可以摆放任意数据
+	skyboxUploadHeapDesc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+    ThrowIfFailed(m_device->CreateHeap(&skyboxUploadHeapDesc, IID_PPV_ARGS(&m_skyboxUploadHeap)));
+
+	// 在skybox上传堆中创建用于上传纹理数据的缓冲资源
+    ThrowIfFailed(m_device->CreatePlacedResource(
+		m_skyboxUploadHeap.Get(),
+		0,
+		&CD3DX12_RESOURCE_DESC::Buffer(skyboxTextureUploadBufferSize),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&m_skyboxTextureUploadBuffer)));
+
+	// 上传skybox的纹理
+	UpdateSubresources(
+        m_commandList.Get(),
+		m_skyboxTexture.Get(),
+		m_skyboxTextureUploadBuffer.Get(),
+		0,
+		0,
+		static_cast<uint32_t>(subResources.size()),
+		subResources.data()
+	);
+
+    m_commandList->ResourceBarrier(
+		1,
+		&CD3DX12_RESOURCE_BARRIER::Transition(
+		m_skyboxTexture.Get(),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+}
+
+void D3D12HelloRaytracing::createSkyboxDescriptorHeap()
+{
+	D3D12_DESCRIPTOR_HEAP_DESC skyboxDescriptorHeapDesc{};
+	skyboxDescriptorHeapDesc.NumDescriptors = 2; // 1 SRV + 1 CBV
+	skyboxDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	skyboxDescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+	ThrowIfFailed(m_device->CreateDescriptorHeap(&skyboxDescriptorHeapDesc, IID_PPV_ARGS(&m_skyboxDescriptorHeap)));
+}
+
+void D3D12HelloRaytracing::createSkyboxShaderResourceView()
+{
+	D3D12_RESOURCE_DESC textureDesc = m_skyboxTexture->GetDesc();
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc{};
+	shaderResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	shaderResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+
+	shaderResourceViewDesc.Format = textureDesc.Format;
+	if (shaderResourceViewDesc.ViewDimension == D3D12_SRV_DIMENSION_TEXTURECUBE)
+	{
+		shaderResourceViewDesc.TextureCube.MipLevels = textureDesc.MipLevels;
+	}
+	else
+	{
+		shaderResourceViewDesc.Texture2D.MipLevels = textureDesc.MipLevels;
+	}
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE descriptorHandle(
+        m_skyboxDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+		0,
+		m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
+
+	m_device->CreateShaderResourceView(m_skyboxTexture.Get(), &shaderResourceViewDesc, descriptorHandle);
+}
+
+void D3D12HelloRaytracing::createSkyboxSamplerDescriptorHeap()
+{
+	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+	descriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+	descriptorHeapDesc.NumDescriptors = 1;
+	descriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+	ThrowIfFailed(m_device->CreateDescriptorHeap(&descriptorHeapDesc,
+		IID_PPV_ARGS(m_skyboxSamplerDescriptorHeap.GetAddressOf())));
+
+    m_skyboxSamplerDescriptorHeap->SetName(L"m_skyboxSamplerDescriptorHeap");
+}
+
+void D3D12HelloRaytracing::createSkyboxSampler()
+{
+	CD3DX12_CPU_DESCRIPTOR_HANDLE skyboxSamplerDescriptorHeapHandle(m_skyboxSamplerDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+	D3D12_SAMPLER_DESC skyboxSamplerDesc{};
+	skyboxSamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+	skyboxSamplerDesc.MinLOD = 0;
+	skyboxSamplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+	skyboxSamplerDesc.MaxAnisotropy = 1;
+	skyboxSamplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+
+	// Sampler 1
+	skyboxSamplerDesc.BorderColor[0] = 1.0f;
+	skyboxSamplerDesc.BorderColor[1] = 0.0f;
+	skyboxSamplerDesc.BorderColor[2] = 1.0f;
+	skyboxSamplerDesc.BorderColor[3] = 1.0f;
+	skyboxSamplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	skyboxSamplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	skyboxSamplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	m_device->CreateSampler(&skyboxSamplerDesc, skyboxSamplerDescriptorHeapHandle);
 }

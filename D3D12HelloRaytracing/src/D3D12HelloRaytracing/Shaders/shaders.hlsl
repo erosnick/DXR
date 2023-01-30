@@ -60,6 +60,6 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     float diffuse = max(0.0f, dot(normal, -lightDirection));
 
-    return float4(ambient + input.color.rgb * diffuse, 1.0f);
+    return float4(ambient * 0.1f + input.color.rgb * diffuse * 0.9f, 1.0f);
     // return float4(float3(normal), 1.0f);
 }

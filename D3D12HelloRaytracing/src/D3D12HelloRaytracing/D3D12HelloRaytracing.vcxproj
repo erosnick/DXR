@@ -112,6 +112,7 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="DDSTextureLoader12.h" />
     <ClInclude Include="GameTimer.h" />
     <ClInclude Include="glm.h" />
     <ClInclude Include="Model.h" />
@@ -123,6 +124,7 @@
     <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DDSTextureLoader12.cpp" />
     <ClCompile Include="GameTimer.cpp" />
     <ClCompile Include="Model.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>

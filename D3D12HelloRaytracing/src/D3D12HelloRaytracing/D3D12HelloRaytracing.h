@@ -172,8 +172,8 @@ private:
 
 	// #DXR Extra: Per-Instance Data
     void CreatePlaneVB();
-	ComPtr<ID3D12Resource> m_planeBuffer;
-	D3D12_VERTEX_BUFFER_VIEW m_planeBufferView;
+	ComPtr<ID3D12Resource> m_planeVertexBuffer;
+	D3D12_VERTEX_BUFFER_VIEW m_planeVertexBufferView;
 
 	// #DXR Extra: Per-Instance Data
 	void CreateGlobalConstantBuffer();
@@ -216,4 +216,15 @@ private:
 	// #DXR Extra - Another ray type
 	ComPtr<IDxcBlob> m_shadowLibrary;
 	ComPtr<ID3D12RootSignature> m_shadowRootSignature;
+
+    void loadSkyboxTexture();
+    void createSkyboxDescriptorHeap();
+    void createSkyboxShaderResourceView();
+    void createSkyboxSamplerDescriptorHeap();
+    void createSkyboxSampler();
+	ComPtr<ID3D12Heap> m_skyboxUploadHeap;
+	ComPtr<ID3D12Resource> m_skyboxTexture;
+	ComPtr<ID3D12Resource> m_skyboxTextureUploadBuffer;
+	ComPtr<ID3D12DescriptorHeap> m_skyboxDescriptorHeap;
+	ComPtr<ID3D12DescriptorHeap> m_skyboxSamplerDescriptorHeap;
 };

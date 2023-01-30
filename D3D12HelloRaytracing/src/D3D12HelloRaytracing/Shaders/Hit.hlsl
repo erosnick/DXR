@@ -20,6 +20,10 @@ StructuredBuffer<InstanceProperties> instanceProperties : register(t2);
 // Raytracing acceleration structure, accessed as a SRV
 RaytracingAccelerationStructure SceneBVH : register(t3);
 
+// TextureCube environmentTexture : register(t4);
+Texture2D environmentTexture : register(t4);
+SamplerState textureSampler : register(s0);
+
 [shader("closesthit")] 
 void ClosestHit(inout HitInfo payload, Attributes attributes) 
 {
@@ -52,14 +56,13 @@ void PlaneClosestHit(inout HitInfo payload, Attributes attributes)
 
     uint vertexId = 3 * PrimitiveIndex();
 
-    payload.normal = float4(BTriVertex[vertexId + 0].normal.xyz * barycentrics.x + 
+    payload.normal = float3(BTriVertex[vertexId + 0].normal.xyz * barycentrics.x + 
                             BTriVertex[vertexId + 1].normal.xyz * barycentrics.y + 
-                            BTriVertex[vertexId + 2].normal.xyz * barycentrics.z,
-                            0.0f);
+                            BTriVertex[vertexId + 2].normal.xyz * barycentrics.z);
 
     float3 lightDirection = float3(-0.4f, -0.6f, -0.9f);
 
-    float3 normal = normalize(payload.normal.xyz);
+    float3 normal = normalize(payload.normal);
 
     float diffuse = max(0.0f, dot(normal, -lightDirection));
 
@@ -70,7 +73,7 @@ void PlaneClosestHit(inout HitInfo payload, Attributes attributes)
 
     float3 finalColor;
 
-    if (payload.depth < 2)
+    if (payload.depth < 1)
     {
         float3 lightPosition = float3(2.0f, 2.0f, -2.0f);
 
@@ -231,11 +234,20 @@ void ModelClosestHit(inout HitInfo payload, Attributes attributes)
                             BTriVertex[indices[vertexId + 1]].normal.xyz * barycentrics.y + 
                             BTriVertex[indices[vertexId + 2]].normal.xyz * barycentrics.z);
 
+                            
+    float3 position = float3(BTriVertex[indices[vertexId + 0]].vertex.xyz * barycentrics.x + 
+                             BTriVertex[indices[vertexId + 1]].vertex.xyz * barycentrics.y + 
+                             BTriVertex[indices[vertexId + 2]].vertex.xyz * barycentrics.z);
+
+    float2 texcoord = float2(BTriVertex[indices[vertexId + 0]].textcoord.xy * barycentrics.x + 
+                             BTriVertex[indices[vertexId + 1]].textcoord.xy * barycentrics.y + 
+                             BTriVertex[indices[vertexId + 2]].textcoord.xy * barycentrics.z);
+
     float3 lightDirection = float3(-0.4f, -0.6f, -0.9f);
 
     float3 normal = payload.normal;
 
-    normal = mul(instanceProperties[InstanceID()].objectToWorld, float4(normal, 0.0f));
+    normal = mul(instanceProperties[InstanceID()].objectToWorld, float4(normal, 0.0f)).xyz;
 
     normal = normalize(normal);
 
@@ -243,6 +255,12 @@ void ModelClosestHit(inout HitInfo payload, Attributes attributes)
 
     float3 ambient = float3(0.1f, 0.1f, 0.1f);
 
-    payload.colorAndDistance = float4(ambient + hitColor * diffuse, RayTCurrent());
-    // payload.colorAndDistance = float4(normal, RayTCurrent());
+    int2 coord = floor(texcoord * 512.0f);
+
+    // float4 textureColor = environmentTexture.Sample(textureSampler, position);
+    // float4 textureColor = environmentTexture.SampleLevel(textureSampler, texcoord, 0);
+    float4 textureColor = environmentTexture.Load(int3(coord, 0));
+
+    payload.colorAndDistance = float4(ambient * 0.1f + hitColor * diffuse * textureColor.rgb * 0.9f, RayTCurrent());
+    // payload.colorAndDistance = float4(float3(texcoord, 0.0f), RayTCurrent());
 }
