@@ -21,8 +21,10 @@ StructuredBuffer<InstanceProperties> instanceProperties : register(t2);
 RaytracingAccelerationStructure SceneBVH : register(t3);
 
 // TextureCube environmentTexture : register(t4);
-Texture2D environmentTexture : register(t4);
-SamplerState textureSampler : register(s0);
+Texture2D texture1 : register(t4);
+Texture2D texture2 : register(t5);
+SamplerState textureSampler1 : register(s0);
+SamplerState textureSampler2 : register(s1);
 
 [shader("closesthit")] 
 void ClosestHit(inout HitInfo payload, Attributes attributes) 
@@ -147,14 +149,14 @@ void PlaneClosestHit(inout HitInfo payload, Attributes attributes)
             // between the hit/miss shaders and the raygen
             shadowPayload);
 
-            RayDesc reflectedRay;
-            reflectedRay.Origin = worldOrigin;
-            reflectedRay.Direction = reflect(WorldRayDirection(), normal);
-            reflectedRay.TMin = 0.01f;
-            reflectedRay.TMax = 100000.0f;
-            
-            HitInfo reflectionPayload;
-            reflectionPayload.depth = payload.depth + 1;
+        RayDesc reflectedRay;
+        reflectedRay.Origin = worldOrigin;
+        reflectedRay.Direction = reflect(WorldRayDirection(), normal);
+        reflectedRay.TMin = 0.01f;
+        reflectedRay.TMax = 100000.0f;
+        
+        HitInfo reflectionPayload;
+        reflectionPayload.depth = payload.depth + 1;
 
         // Trace the reflection ray
         TraceRay(
@@ -209,9 +211,9 @@ void PlaneClosestHit(inout HitInfo payload, Attributes attributes)
             // between the hit/miss shaders and the raygen
             reflectionPayload);
 
-            float factor = shadowPayload.isHit ? 0.3f : 1.0f;
+        float factor = shadowPayload.isHit ? 0.3f : 1.0f;
 
-           finalColor = diffuseColor * factor + reflectionPayload.colorAndDistance.rgb * 0.25f;
+        finalColor = diffuseColor * factor + reflectionPayload.colorAndDistance.rgb * 0.25f;
     }
     else
     {
@@ -243,6 +245,8 @@ void ModelClosestHit(inout HitInfo payload, Attributes attributes)
                              BTriVertex[indices[vertexId + 1]].textcoord.xy * barycentrics.y + 
                              BTriVertex[indices[vertexId + 2]].textcoord.xy * barycentrics.z);
 
+    texcoord *= 2.0f;
+
     float3 lightDirection = float3(-0.4f, -0.6f, -0.9f);
 
     float3 normal = payload.normal;
@@ -258,8 +262,8 @@ void ModelClosestHit(inout HitInfo payload, Attributes attributes)
     int2 coord = floor(texcoord * 512.0f);
 
     // float4 textureColor = environmentTexture.Sample(textureSampler, position);
-    // float4 textureColor = environmentTexture.SampleLevel(textureSampler, texcoord, 0);
-    float4 textureColor = environmentTexture.Load(int3(coord, 0));
+    float4 textureColor = texture2.SampleLevel(textureSampler2, texcoord, 0);
+    // float4 textureColor = environmentTexture2.Load(int3(coord, 0));
 
     payload.colorAndDistance = float4(ambient * 0.1f + hitColor * diffuse * textureColor.rgb * 0.9f, RayTCurrent());
     // payload.colorAndDistance = float4(float3(texcoord, 0.0f), RayTCurrent());

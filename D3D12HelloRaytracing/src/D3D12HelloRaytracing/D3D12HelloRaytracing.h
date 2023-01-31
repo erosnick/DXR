@@ -217,14 +217,15 @@ private:
 	ComPtr<IDxcBlob> m_shadowLibrary;
 	ComPtr<ID3D12RootSignature> m_shadowRootSignature;
 
-    void loadSkyboxTexture();
-    void createSkyboxDescriptorHeap();
-    void createSkyboxShaderResourceView();
+    void loadDDSTexture(const std::wstring& path, ComPtr<ID3D12Resource>& texture);
     void createSkyboxSamplerDescriptorHeap();
     void createSkyboxSampler();
-	ComPtr<ID3D12Heap> m_skyboxUploadHeap;
+	ComPtr<ID3D12Heap> m_textureUploadHeap;
+	ComPtr<ID3D12Resource> m_ModelTexture1;
+	ComPtr<ID3D12Resource> m_ModelTexture2;
 	ComPtr<ID3D12Resource> m_skyboxTexture;
-	ComPtr<ID3D12Resource> m_skyboxTextureUploadBuffer;
-	ComPtr<ID3D12DescriptorHeap> m_skyboxDescriptorHeap;
+	ComPtr<ID3D12Resource> m_textureUploadBuffer;
 	ComPtr<ID3D12DescriptorHeap> m_skyboxSamplerDescriptorHeap;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC createShaderResourceViewDesc(D3D12_SRV_DIMENSION ViewDimension, DXGI_FORMAT format, uint32_t mipLevels);
 };
