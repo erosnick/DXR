@@ -276,9 +276,9 @@ void D3D12HelloRaytracing::LoadAssets()
         // Define the geometry for a triangle.
         Vertex triangleVertices[] =
         {
-            { { 0.0f, 0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-            { { 0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-            { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } }
+            { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+            { { 0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+            { { 0.0f, 0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
         };
 
         const UINT vertexBufferSize = sizeof(triangleVertices);
@@ -349,6 +349,7 @@ void D3D12HelloRaytracing::LoadAssets()
 void D3D12HelloRaytracing::OnUpdate()
 {
     // #DXR Extra: Perspective Camera 
+    UpdateCameraMovement(m_frameTime);
 	UpdateCameraBuffer();
 	UpdateConstantBuffer();
     UpdateInstancePropertiesBuffer();
@@ -394,6 +395,49 @@ void D3D12HelloRaytracing::OnKeyUp(uint8_t key)
             extraInfo = L" Raytracer";
         }
     }
+}
+
+void D3D12HelloRaytracing::OnMouseMove(WPARAM buttonState, float x, float y)
+{
+	auto xoffset = x - m_lastMousePosition.x;
+	auto yoffset = m_lastMousePosition.y - y;
+
+    if ((buttonState & MK_RBUTTON) != 0)
+    {
+        xoffset *= m_mouseSensitivity;
+        yoffset *= m_mouseSensitivity;
+
+        m_yaw += xoffset;
+        m_pitch += yoffset;
+
+        // make sure that when pitch is out of bounds, screen doesn't get flipped
+        if (m_constrainPitch)
+        {
+            if (m_pitch > 89.0f)
+                m_pitch = 89.0f;
+            if (m_pitch < -89.0f)
+                m_pitch = -89.0f;
+        }
+    }
+
+    m_lastMousePosition.x = x;
+    m_lastMousePosition.y = y;
+}
+
+void D3D12HelloRaytracing::OnMouseWheel(float offset)
+{
+
+}
+
+void D3D12HelloRaytracing::OnMouseButtonDown(WPARAM buttonState, float x, float y)
+{
+	m_lastMousePosition.x = x;
+	m_lastMousePosition.y = y;
+}
+
+void D3D12HelloRaytracing::OnMouseButtonUp(WPARAM buttonState, float x, float y)
+{
+
 }
 
 void D3D12HelloRaytracing::PopulateCommandList()
@@ -816,10 +860,11 @@ void D3D12HelloRaytracing::CreateAccelerationStructures()
          { {m_modelIndexBuffer.Get(), model.mesh.indexCount} });
 
 	//auto translation = XMMatrixTranslation(0.0f, -0.75f, 0.3f);
-	auto translation = XMMatrixTranslation(0.0f, -0.5f, 0.3f);
+	auto translation = XMMatrixTranslation(0.0f, -0.5f, -0.3f);
     auto rotation = XMMatrixRotationY(XM_PI);
 	//auto scale = XMMatrixScaling(0.25f, 0.25f, 0.25f);
-	auto scale = XMMatrixScaling(0.5f, 0.5f, 0.5f);
+    auto scaleFactor = 0.25f;
+	auto scale = XMMatrixScaling(scaleFactor, scaleFactor, scaleFactor);
 	
     auto transform = scale * rotation * translation;
 
@@ -1411,29 +1456,69 @@ void D3D12HelloRaytracing::CreateCameraBuffer()
 void D3D12HelloRaytracing::UpdateCameraBuffer()
 {
     std::vector<XMMATRIX> matrices(4); 
-    
-    // Initialize the view matrix, ideally this should be based on user 
-    // interactions The look at and perspective matrices used for rasterization are 
-    // defined to transform world-space vertices into a [0,1]x[0,1]x[0,1] camera space 
-    XMVECTOR Eye = XMVectorSet(1.5f, 1.5f, 1.5f, 0.0f); 
-    XMVECTOR At = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f); 
-    XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f); 
-    
-    matrices[0] = XMMatrixLookAtLH(Eye, At, Up);
-    
+  
     float fovAngleY = 45.0f * XM_PI / 180.0f; 
     
-    matrices[1] = XMMatrixPerspectiveFovLH(fovAngleY, m_aspectRatio, 0.1f, 1000.0f); 
-    
+    matrices[1] = XMMatrixPerspectiveFovLH(fovAngleY, m_aspectRatio, 0.1f, 1000.0f);
+
+	// Initialize the view matrix, ideally this should be based on user 
+    // interactions The look at and perspective matrices used for rasterization are 
+    // defined to transform world-space vertices into a [0,1]x[0,1]x[0,1] camera space 
+    float x = std::cos(XM_PI / 180.0f * m_yaw) * std::cos(XM_PI / 180.0f * m_pitch);
+	float y = std::sin(XM_PI / 180.0f * m_pitch);
+	float z = std::sin(XM_PI / 180.0f * -m_yaw) * std::cos(XM_PI / 180.0f * -m_pitch);
+
+    XMVECTOR front = XMVectorSet(x, y, z, 0.0f);
+
+    m_front = XMVector3Normalize(front);
+
+    m_right = XMVector3Cross(m_worldUp, front);
+    m_up = XMVector3Cross(m_front, m_right);
+
+	matrices[0] = XMMatrixLookAtLH(m_eye, m_eye + m_front, m_up);
+
     // Ray tracing has to do the contrary of rasterization: rays are defined in
     // camera space, and are transformed into world space. To do this, we need to 
     // store the inverse matrices as well. 
     XMVECTOR det;
-    matrices[2] = XMMatrixInverse(&det, matrices[0]); 
-    matrices[3] = XMMatrixInverse(&det, matrices[1]); 
+    matrices[2] = XMMatrixInverse(&det, matrices[0]);
+    matrices[3] = XMMatrixInverse(&det, matrices[1]);
     
     // Copy the matrix contents 
     memcpy_s(m_cameraBufferData, m_cameraBufferSize, matrices.data(), m_cameraBufferSize);
+}
+
+void D3D12HelloRaytracing::UpdateCameraMovement(float deltaTime)
+{
+    if (GetAsyncKeyState('W') & 0x8000)
+    {
+        m_eye += m_front * m_cameraSpeed * m_frameTime;
+    }
+
+	if (GetAsyncKeyState('S') & 0x8000)
+	{
+		m_eye -= m_front * m_cameraSpeed * m_frameTime;
+	}
+
+	if (GetAsyncKeyState('A') & 0x8000)
+	{
+		m_eye -= m_right * m_cameraSpeed * m_frameTime;
+	}
+
+	if (GetAsyncKeyState('D') & 0x8000)
+	{
+		m_eye += m_right * m_cameraSpeed * m_frameTime;
+	}
+
+	if (GetAsyncKeyState('Q') & 0x8000)
+	{
+		m_eye += m_up * m_cameraSpeed * m_frameTime;
+	}
+
+	if (GetAsyncKeyState('E') & 0x8000)
+	{
+		m_eye -= m_up * m_cameraSpeed * m_frameTime;
+	}
 }
 
 void D3D12HelloRaytracing::CreateConstantBuffer()

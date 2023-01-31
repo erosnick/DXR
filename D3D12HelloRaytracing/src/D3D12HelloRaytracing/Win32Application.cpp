@@ -12,6 +12,7 @@
 #include "stdafx.h"
 #include "Win32Application.h"
 #include <chrono>
+#include <windowsx.h>
 
 HWND Win32Application::m_hwnd = nullptr;
 
@@ -124,7 +125,50 @@ LRESULT CALLBACK Win32Application::WindowProc(HWND hWnd, UINT message, WPARAM wP
             pSample->OnKeyUp(static_cast<UINT8>(wParam));
         }
         return 0;
+    case WM_LBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+        if (pSample)
+        {
+            pSample->OnMouseButtonDown(wParam, static_cast<float>(GET_X_LPARAM(lParam)),
+                                                    static_cast<float>(GET_Y_LPARAM(lParam)));
+        }
+        break;
+	case WM_LBUTTONUP:
+	case WM_MBUTTONUP:
+	case WM_RBUTTONUP:
+		if (pSample)
+		{
+			pSample->OnMouseButtonUp(wParam, static_cast<float>(GET_X_LPARAM(lParam)),
+				static_cast<float>(GET_Y_LPARAM(lParam)));
+		}
+		break;
+    case WM_MOUSEMOVE:
+        if (pSample)
+        {
+            pSample->OnMouseMove(wParam, static_cast<float>(GET_X_LPARAM(lParam)), 
+                                                    static_cast<float>(GET_Y_LPARAM(lParam)));
+        }
+	break;	
+    case WM_MOUSEWHEEL:
+	{
+		auto offset = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam));
 
+		if (offset > 0.0f)
+		{
+			offset = 1.0f;
+		}
+		else
+		{
+			offset = -1.0f;
+		}
+        
+        if (pSample)
+        {
+            pSample->OnMouseWheel(offset);
+        }
+	}
+	break;
     case WM_PAINT:
         //if (pSample)
         //{

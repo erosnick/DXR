@@ -56,7 +56,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 {
     float3 ambient = float3(0.1f, 0.1f, 0.1f);
     float3 normal = normalize(input.normal);
-    float3 lightDirection = normalize(float3(-0.4f, -0.6f, -0.9f));
+    float3 lightDirection = normalize(float3(-0.4f, -0.6f, 0.9f));
 
     float diffuse = max(0.0f, dot(normal, -lightDirection));
 

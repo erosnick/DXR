@@ -31,7 +31,10 @@ public:
     // Samples override the event handlers to handle specific messages.
     virtual void OnKeyDown(UINT8 /*key*/)   {}
     virtual void OnKeyUp(UINT8 /*key*/)     {}
-
+	virtual	void OnMouseMove(WPARAM buttonState, float x, float y) {}
+	virtual void OnMouseWheel(float offset) {}
+	virtual void OnMouseButtonDown(WPARAM buttonState, float x, float y) {}
+	virtual void OnMouseButtonUp(WPARAM buttonState, float x, float y) {}
     // Accessors.
     UINT GetWidth() const           { return m_width; }
     UINT GetHeight() const          { return m_height; }

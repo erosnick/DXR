@@ -61,6 +61,10 @@ public:
 
     virtual void OnKeyUp(uint8_t key) override;
 
+    virtual	void OnMouseMove(WPARAM buttonState, float x, float y) override;
+    virtual void OnMouseWheel(float offset) override;
+    virtual void OnMouseButtonDown(WPARAM buttonState, float x, float y) override;
+    virtual void OnMouseButtonUp(WPARAM buttonState, float x, float y) override;
 private:
     static const UINT FrameCount = 2;
 
@@ -182,10 +186,25 @@ private:
 	// #DXR Extra: Perspective Camera
 	void CreateCameraBuffer();
 	void UpdateCameraBuffer();
+    void UpdateCameraMovement(float deltaTime);
 	ComPtr< ID3D12Resource > m_cameraBuffer;
 	ComPtr< ID3D12DescriptorHeap > m_constantbufferHeap;
 	uint32_t m_cameraBufferSize = 0;
     uint8_t* m_cameraBufferData = nullptr;
+	//XMVECTOR m_eye = XMVectorSet(1.5f, 1.5f, 1.5f, 0.0f);
+	XMVECTOR m_eye = XMVectorSet(0.0f, 0.5f, -3.0f, 0.0f);
+	XMVECTOR m_at = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+	XMVECTOR m_up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+	XMVECTOR m_front;
+	XMVECTOR m_right;
+    XMVECTOR m_worldUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    float m_yaw = -90.0f;
+    float m_pitch = 0.0f;
+	float m_mouseSensitivity = 0.1f;
+    float m_cameraSpeed = 1.0f;
+    float m_frameTime = 0.01666667f;
+    bool m_constrainPitch = false;
+	XMFLOAT2 m_lastMousePosition;
 
 	void CreateConstantBuffer();
 	void UpdateConstantBuffer();

@@ -62,7 +62,7 @@ void PlaneClosestHit(inout HitInfo payload, Attributes attributes)
                             BTriVertex[vertexId + 1].normal.xyz * barycentrics.y + 
                             BTriVertex[vertexId + 2].normal.xyz * barycentrics.z);
 
-    float3 lightDirection = float3(-0.4f, -0.6f, -0.9f);
+    float3 lightDirection = float3(-0.4f, -0.6f, 0.9f);
 
     float3 normal = normalize(payload.normal);
 
@@ -247,7 +247,7 @@ void ModelClosestHit(inout HitInfo payload, Attributes attributes)
 
     texcoord *= 2.0f;
 
-    float3 lightDirection = float3(-0.4f, -0.6f, -0.9f);
+    float3 lightDirection = float3(-0.4f, -0.6f, 0.9f);
 
     float3 normal = payload.normal;
 
