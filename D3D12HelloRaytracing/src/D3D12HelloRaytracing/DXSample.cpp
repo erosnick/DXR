@@ -49,7 +49,6 @@ void DXSample::CalculateFrameStats()
 	{
 		float fps = static_cast<float>(frameCount); // fps = frameCnt / 1
 		float mspf = 1000.0f / fps;
-
 		std::wstring fpsStr = std::to_wstring(fps);
 		std::wstring mspfStr = std::to_wstring(mspf);
 

@@ -14,7 +14,7 @@ struct HitInfo
 // Ray payload for the shadow rays
 struct ShadowHitInfo
 {
-    bool isHit;
+    bool isVisible;
 };
 
 // Attributes output by the raytracing when hitting a surface,

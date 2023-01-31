@@ -58,8 +58,8 @@ int Win32Application::Run(DXSample* pSample, HINSTANCE hInstance, int nCmdShow)
 
     ShowWindow(m_hwnd, nCmdShow);
 
-	// 记录帧开始时间，和当前时间，以循环结束为界
-    auto simulationTime = GetTickCount64();
+	static auto startTimeDuration = std::chrono::high_resolution_clock::now().time_since_epoch();
+	auto simulationTime = std::chrono::duration<double, std::chrono::seconds::period>(startTimeDuration).count();
 
     // Main sample loop.
     MSG msg = {};
@@ -73,11 +73,12 @@ int Win32Application::Run(DXSample* pSample, HINSTANCE hInstance, int nCmdShow)
         }
         else
         {
-            auto realTime = GetTickCount64();
+			auto realTimeDuration = std::chrono::high_resolution_clock::now().time_since_epoch();
+			auto realTime = std::chrono::duration<double, std::chrono::seconds::period>(realTimeDuration).count();
 
 			while (simulationTime < realTime)
 			{
-				simulationTime += 16;
+                simulationTime += 0.01666667;
                 pSample->OnUpdate();
 			}
 				

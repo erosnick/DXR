@@ -63,6 +63,8 @@ struct GLMMesh
 
 	std::vector<GLMVertex> vertices;
 	std::vector<uint32_t> indices;
+
+	bool hasTexture;
 };
 
 class GLMModel
@@ -92,6 +94,7 @@ struct DXMesh
 	uint32_t indexBufferSize = 0;
 	uint32_t vertexCount = 0;
 	uint32_t indexCount = 0;
+	bool hasTexture;
 };
 
 struct DXModel

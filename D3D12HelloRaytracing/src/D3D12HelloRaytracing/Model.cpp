@@ -56,6 +56,11 @@ bool GLMModel::load(const std::string& path)
 				attrib.texcoords[2 * index.texcoord_index + 0],
 				attrib.texcoords[2 * index.texcoord_index + 1]
 				};
+				mesh.hasTexture = true;
+			}
+			else
+			{
+				mesh.hasTexture = false;
 			}
 
 			if (uniqueVertices.count(vertex) == 0) {
@@ -111,6 +116,7 @@ void DXModel::convert(const GLMModel& model)
 		mesh.vertices.emplace_back(vertex);
 	}
 
+	mesh.hasTexture = model.mesh.hasTexture;
 	mesh.indices = model.mesh.indices;
 
 	mesh.vertexBufferSize = static_cast<uint32_t>(sizeof(DXVertex) * mesh.vertices.size());

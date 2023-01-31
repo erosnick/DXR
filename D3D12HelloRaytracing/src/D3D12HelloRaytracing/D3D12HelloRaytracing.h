@@ -47,6 +47,8 @@ struct ConstantBuffer
 struct InstanceProperties
 {
     XMMATRIX objectToWorld;
+    int hasTexture;
+    XMFLOAT3 padding;
 };
 
 class D3D12HelloRaytracing : public DXSample
@@ -134,7 +136,7 @@ private:
 	/// Create the main acceleration structure that holds
     /// all instances of the scene
     /// \param instances : pair of BLAS and transform
-    void CreateTopLevelAS(const std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>>& instances);
+    void CreateTopLevelAS(const std::vector<std::tuple<ComPtr<ID3D12Resource>, DirectX::XMMATRIX, bool>>& instances);
 
     /// Create all acceleration structures, bottom and top
     void CreateAccelerationStructures();
@@ -152,7 +154,7 @@ private:
     ComPtr<ID3D12Resource> m_bottomLevelAS;
     nv_helpers_dx12::TopLevelASGenerator m_topLevelASGenerator;
     AccelerationStructureBuffers m_topLevelASBuffers;
-    std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>> m_instances;
+    std::vector<std::tuple<ComPtr<ID3D12Resource>, DirectX::XMMATRIX, bool>> m_instances;
 
     ComPtr<IDxcBlob> m_rayGenLibrary;
 	ComPtr<IDxcBlob> m_hitLibrary;
@@ -192,7 +194,7 @@ private:
 	uint32_t m_cameraBufferSize = 0;
     uint8_t* m_cameraBufferData = nullptr;
 	//XMVECTOR m_eye = XMVectorSet(1.5f, 1.5f, 1.5f, 0.0f);
-	XMVECTOR m_eye = XMVectorSet(0.0f, 0.5f, -3.0f, 0.0f);
+	XMVECTOR m_eye = XMVectorSet(0.0f, 0.25f, -3.0f, 0.0f);
 	XMVECTOR m_at = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
 	XMVECTOR m_up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 	XMVECTOR m_front;
@@ -202,7 +204,6 @@ private:
     float m_pitch = 0.0f;
 	float m_mouseSensitivity = 0.1f;
     float m_cameraSpeed = 1.0f;
-    float m_frameTime = 0.01666667f;
     bool m_constrainPitch = false;
 	XMFLOAT2 m_lastMousePosition;
 

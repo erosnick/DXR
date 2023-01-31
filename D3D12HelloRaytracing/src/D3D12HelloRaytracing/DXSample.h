@@ -60,6 +60,7 @@ protected:
     // Adapter info.
     bool m_useWarpDevice;
     std::wstring extraInfo{ L" Rasterizer" };
+    float m_frameTime = 0.01666667f;
 private:
     // Root assets path.
     std::wstring m_assetsPath;

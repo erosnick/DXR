@@ -778,7 +778,7 @@ D3D12HelloRaytracing::AccelerationStructureBuffers D3D12HelloRaytracing::CreateB
 // AS itself
 //
 // pair of bottom level AS and matrix of the instance
-void D3D12HelloRaytracing::CreateTopLevelAS(const std::vector<std::pair<ComPtr<ID3D12Resource>, DirectX::XMMATRIX>>& instances)
+void D3D12HelloRaytracing::CreateTopLevelAS(const std::vector<std::tuple<ComPtr<ID3D12Resource>, DirectX::XMMATRIX, bool>>& instances)
 {
     // Gather all the instances into the builder helper
     // AddInstance第三个参数instanceID可以在Hit着色器中用InstanceID函数获取
@@ -789,21 +789,21 @@ void D3D12HelloRaytracing::CreateTopLevelAS(const std::vector<std::pair<ComPtr<I
     // Triangles
     for (size_t i = 0; i < 3; i++) 
     {
-        m_topLevelASGenerator.AddInstance(instances[i].first.Get(), 
-                                             instances[i].second, 
+        m_topLevelASGenerator.AddInstance(std::get<0>(instances[i]).Get(), 
+                                             std::get<1>(instances[i]), 
                                             static_cast<uint32_t>(i),
                                           0);
     }
     
     // Plane
-	m_topLevelASGenerator.AddInstance(instances[3].first.Get(),
-		                                 instances[3].second,
+	m_topLevelASGenerator.AddInstance(std::get<0>(instances[3]).Get(),
+                                         std::get<1>(instances[3]),
 		                                static_cast<uint32_t>(3),
 		                              2);
 
     // Model
-	m_topLevelASGenerator.AddInstance(instances[instances.size() - 1].first.Get(),
-		                                instances[instances.size() - 1].second,
+	m_topLevelASGenerator.AddInstance(std::get<0>(instances[instances.size() - 1]).Get(),
+                                         std::get<1>(instances[instances.size() - 1]),
 		                                static_cast<uint32_t>(instances.size() - 1),
                                       4);
     
@@ -861,7 +861,7 @@ void D3D12HelloRaytracing::CreateAccelerationStructures()
 
 	//auto translation = XMMatrixTranslation(0.0f, -0.75f, 0.3f);
 	auto translation = XMMatrixTranslation(0.0f, -0.5f, -0.3f);
-    auto rotation = XMMatrixRotationY(XM_PI);
+    auto rotation = XMMatrixRotationY(0.0f);
 	//auto scale = XMMatrixScaling(0.25f, 0.25f, 0.25f);
     auto scaleFactor = 0.25f;
 	auto scale = XMMatrixScaling(scaleFactor, scaleFactor, scaleFactor);
@@ -878,12 +878,12 @@ void D3D12HelloRaytracing::CreateAccelerationStructures()
     };
 
     // Just one instance for now 
-    m_instances = { {bottomLevelBuffers.result, transforms[0]},
-                    {bottomLevelBuffers.result, transforms[1]},
-                    {bottomLevelBuffers.result, transforms[2]},
+    m_instances = { {bottomLevelBuffers.result, transforms[0], false},
+                    {bottomLevelBuffers.result, transforms[1], false},
+                    {bottomLevelBuffers.result, transforms[2], false},
                     // #DXR Extra: Per-Instance Data
-                    {planeBottomLevelBuffers.result, transforms[3]},
-                    {modelBottomLevelBuffers.result, transform} };
+                    {planeBottomLevelBuffers.result, transforms[3], false},
+                    {modelBottomLevelBuffers.result, transform, model.mesh.hasTexture} };
 
     CreateTopLevelAS(m_instances); 
     
@@ -1312,7 +1312,7 @@ void D3D12HelloRaytracing::CreateShaderBindingTable()
     // 甚至都可以不用传入纹理的ID3D12Resource指针，这就是让人很困惑的地方了，如果说管线可以根据根签名自动
     // 将Shader中第一张纹理引用对应起来，那么加入第二张纹理之后为何就需要显式传入纹理的ID3D12Resource指针呢？
     // 另外，不管是有一个还是多个Texture Sampler, 这里也不需要指定输入参数，只要在根签名中声明好，堆中创建好，
-    // Shader 中就可以直接访问，暂时先这样，待深入学习的时候再追究其中的细节
+    // Shader 中就可以直接访问，暂时先这样，待深入学习的时候再追究其中的细节吧
 	inputData.push_back(heapPointer);
 	inputData.push_back((void*)(m_ModelTexture1->GetGPUVirtualAddress()));
 	inputData.push_back((void*)(m_ModelTexture2->GetGPUVirtualAddress()));
@@ -1500,12 +1500,12 @@ void D3D12HelloRaytracing::UpdateCameraMovement(float deltaTime)
 		m_eye -= m_front * m_cameraSpeed * m_frameTime;
 	}
 
-	if (GetAsyncKeyState('A') & 0x8000)
+	if (GetKeyState('A') & 0x8000)
 	{
 		m_eye -= m_right * m_cameraSpeed * m_frameTime;
 	}
 
-	if (GetAsyncKeyState('D') & 0x8000)
+	if (GetKeyState('D') & 0x8000)
 	{
 		m_eye += m_right * m_cameraSpeed * m_frameTime;
 	}
@@ -1683,11 +1683,12 @@ void D3D12HelloRaytracing::CreateInstancePropertiesBuffer()
 // #DXR Extra - Refitting
 void D3D12HelloRaytracing::UpdateInstancePropertiesBuffer()
 {
-    InstanceProperties* current = m_instancePropertiesBufferData;
+	InstanceProperties* current = m_instancePropertiesBufferData;
 
 	for (const auto& instance : m_instances) 
     {
-        current->objectToWorld = instance.second;
+        current->objectToWorld = std::get<1>(instance);
+        current->hasTexture = std::get<2>(instance);
         current++;
 	}
 }
