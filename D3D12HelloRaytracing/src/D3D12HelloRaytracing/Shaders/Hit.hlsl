@@ -25,6 +25,8 @@ RaytracingAccelerationStructure SceneBVH : register(t3);
 // TextureCube environmentTexture : register(t4);
 Texture2D texture1 : register(t4);
 Texture2D texture2 : register(t5);
+Texture2D texture3 : register(t6);
+Texture2D texture4 : register(t7);
 SamplerState textureSampler1 : register(s0);
 SamplerState textureSampler2 : register(s1);
 
@@ -272,8 +274,8 @@ void ModelClosestHit(inout HitInfo payload, Attributes attributes)
     if (instanceProperties[InstanceID()].hasTexture)
     {
        textureColor = texture2.SampleLevel(textureSampler2, texcoord, 0);
+        // textureColor = texture2.Load(int3(coord, 0));
     }
-    // float4 textureColor = environmentTexture2.Load(int3(coord, 0));
 
     payload.colorAndDistance = float4(ambient * 0.1f + hitColor * diffuse * textureColor.rgb * 0.9f, RayTCurrent());
     // payload.colorAndDistance = float4(float3(texcoord, 0.0f), RayTCurrent());

@@ -57,7 +57,7 @@ void D3D12HelloRaytracing::OnInit()
 	// #DXR Extra: Per-Instance Data
     // Create a constant buffers, with a color for each vertex of the triangle, for each
     // triangle instance
-	CreateGlobalConstantBuffer();
+	//CreateGlobalConstantBuffer();
 
 	// Allocate the buffer storing the ray tracing output, with the same dimensions
     // as the target image
@@ -126,6 +126,8 @@ void D3D12HelloRaytracing::LoadPipeline()
             IID_PPV_ARGS(&m_device)
             ));
     }
+
+    m_SRVCBVUAVDescriptorHandleIncrementSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     // Describe and create the command queue.
     D3D12_COMMAND_QUEUE_DESC queueDesc = {};
@@ -201,12 +203,18 @@ void D3D12HelloRaytracing::LoadAssets()
     // in a constant buffer, itself referenced the heap. To do this we reference a range in the heap,
     // and use that range as the sole parameter of the shader. The camera buffer is associated in the
     // index 0, making it accessible in the shader in the b0 register.
-	CD3DX12_ROOT_PARAMETER constantParameters[2];
-	CD3DX12_DESCRIPTOR_RANGE ranges[2];
-	ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-	ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1);
+    CD3DX12_ROOT_PARAMETER constantParameters[4]{};
+    CD3DX12_DESCRIPTOR_RANGE ranges[4]{};
+
+	ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0);
+	ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0);
+	ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+	ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0, 0);
+
 	constantParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
 	constantParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+	constantParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);
+	constantParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);
 
     // Create an empty root signature.
     {
@@ -231,8 +239,8 @@ void D3D12HelloRaytracing::LoadAssets()
         UINT compileFlags = 0;
 #endif
 
-        ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"Shaders/shaders.hlsl").c_str(), nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
-        ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"Shaders/shaders.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
+        ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"Shaders/Shaders.hlsl").c_str(), nullptr, nullptr, "VSMain", "vs_5_1", compileFlags, 0, &vertexShader, nullptr));
+        ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"Shaders/Shaders.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_1", compileFlags, 0, &pixelShader, nullptr));
 
         // Define the vertex input layout.
         D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
@@ -333,16 +341,23 @@ void D3D12HelloRaytracing::LoadAssets()
     //model.load("Models/bunny.obj");
 	//model.load("Models/dragon.obj");
 	model.load("Models/cube.obj");
-	
-    createModelVertexBuffer();
-	createModelIndexBuffer();
+    skybox.load("Models/cube.obj");
+
+    createModelVertexBuffer(model, m_modelVertexBufferView);
+	createModelIndexBuffer(model, m_modelIndexBufferView);
+
+	createModelVertexBuffer(skybox, m_skyboxVertexBufferView);
+	createModelIndexBuffer(skybox, m_skyboxIndexBufferView);
 
 	loadDDSTexture(L"Textures/WoodCrate01.dds", m_ModelTexture1);
-	loadDDSTexture(L"Textures/bricks2.dds", m_ModelTexture2);
+	loadDDSTexture(L"Textures/bricks1.dds", m_ModelTexture2);
+	loadDDSTexture(L"Textures/bricks2.dds", m_ModelTexture3);
+	loadDDSTexture(L"Textures/bricks3.dds", m_ModelTexture4);
 	loadDDSTexture(L"Textures/Day_1024.dds", m_skyboxTexture);
 
     createSkyboxSamplerDescriptorHeap();
     createSkyboxSampler();
+    CreateSkyboxGraphicsPipelineState();
 }
 
 // Update frame-based values.
@@ -471,10 +486,11 @@ void D3D12HelloRaytracing::PopulateCommandList()
     if (m_raster)
     {
         // #DXR Extra: Perspective Camera 
-        std::vector<ID3D12DescriptorHeap*> heaps = { m_constantbufferHeap.Get() };
+        std::vector<ID3D12DescriptorHeap*> heaps = { m_constantbufferHeap.Get(), m_skyboxSamplerDescriptorHeap.Get() };
         m_commandList->SetDescriptorHeaps(static_cast<uint32_t>(heaps.size()), heaps.data()); 
         
-        // set the root descriptor table 0 to the constant buffer descriptor heap 
+        // set the root descriptor table 0 to the constant buffer descriptor heap
+        // b0 - Camera matrices
         m_commandList->SetGraphicsRootDescriptorTable( 0, m_constantbufferHeap->GetGPUDescriptorHandleForHeapStart());
 	
         // Record commands.
@@ -486,6 +502,35 @@ void D3D12HelloRaytracing::PopulateCommandList()
 		
         m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+		// Draw the skybox
+		m_commandList->SetPipelineState(m_skyboxGraphicsPipelineState.Get());
+
+		m_commandList->IASetVertexBuffers(0, 1, &m_skyboxVertexBufferView);
+		m_commandList->IASetIndexBuffer(&m_skyboxIndexBufferView);
+
+		auto skyboxDescriptorHandle = m_constantbufferHeap->GetGPUDescriptorHandleForHeapStart();
+
+		skyboxDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize * 6;
+
+		// 变换矩阵
+		m_commandList->SetGraphicsRootDescriptorTable(1, skyboxDescriptorHandle);
+
+		skyboxDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+		// 纹理
+		m_commandList->SetGraphicsRootDescriptorTable(2, skyboxDescriptorHandle);
+
+		skyboxDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+		auto skyboxSamplerDescriptorHandle = m_skyboxSamplerDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+		// 采样器
+		m_commandList->SetGraphicsRootDescriptorTable(3, skyboxSamplerDescriptorHandle);
+
+		m_commandList->DrawIndexedInstanced(model.mesh.indexCount, 1, 0, 0, 0);
+
+        m_commandList->SetPipelineState(m_pipelineState.Get());
+
 		// #DXR Extra: Per-Instance Data
         // In a way similar to triangle rendering, rasterize the plane
 		m_commandList->IASetVertexBuffers(0, 1, &m_planeVertexBufferView);
@@ -494,7 +539,8 @@ void D3D12HelloRaytracing::PopulateCommandList()
 
         auto planeDescriptorHandle = constantBufferDescriptorHandle;
 
-        planeDescriptorHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        // b1 - model matrix
+        planeDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 
 		m_commandList->SetGraphicsRootDescriptorTable(1, planeDescriptorHandle);
 
@@ -503,9 +549,9 @@ void D3D12HelloRaytracing::PopulateCommandList()
 		m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
 
         // Draw three triangles
-		for (auto i = 0; i < transforms.size() - 1; i++)
+		for (auto i = 0; i < transforms.size() - 2; i++)
 		{
-			constantBufferDescriptorHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+			constantBufferDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 
 			m_commandList->SetGraphicsRootDescriptorTable(1, constantBufferDescriptorHandle);
 
@@ -516,7 +562,7 @@ void D3D12HelloRaytracing::PopulateCommandList()
 		m_commandList->IASetVertexBuffers(0, 1, &m_modelVertexBufferView);
         m_commandList->IASetIndexBuffer(&m_modelIndexBufferView);
 
-		constantBufferDescriptorHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		constantBufferDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 
 		m_commandList->SetGraphicsRootDescriptorTable(1, constantBufferDescriptorHandle);
 
@@ -870,11 +916,12 @@ void D3D12HelloRaytracing::CreateAccelerationStructures()
 
     transforms = 
     {
-        XMMatrixIdentity(),
-        XMMatrixTranslation(-0.6f, 0.0f, 0.0f),
-		XMMatrixTranslation(0.6f, 0.0f, 0.0f),
-		XMMatrixTranslation(0.0f, 0.0f, 0.0f),
-        transform
+        XMMatrixIdentity(),                                             // 平面
+        XMMatrixTranslation(-0.6f, 0.0f, 0.0f),   // 三角形
+		XMMatrixTranslation(0.6f, 0.0f, 0.0f),    // 三角形
+		XMMatrixTranslation(0.0f, 0.0f, 0.0f),    // 三角形
+        transform,                                                      // obj模型
+        XMMatrixTranslation(0.0f, 0.0f, 0.0f),   // skybox
     };
 
     // Just one instance for now 
@@ -935,7 +982,7 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateMissRootSignature()
 	rootSignatureGenerator.AddHeapRangesParameter({
 	{
         0 /*t0*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-        6 /*7th slot of the heap*/},
+        8 /*8th slot of the heap*/},
 	});
 
     // 天空盒纹理的采样器
@@ -972,7 +1019,6 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateHitRootSignature()
 		1 /*2nd slot of the heap*/},
 	});
 
-    // 天空盒的纹理
 	rootSignatureGenerator.AddHeapRangesParameter({
 	{
         4 /*t4*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
@@ -983,6 +1029,18 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateHitRootSignature()
     {
 	    5 /*t5*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
 	    5 /*6th slot of the heap*/},
+	});
+
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{
+		6 /*t6*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		6 /*7th slot of the heap*/},
+	});
+
+	rootSignatureGenerator.AddHeapRangesParameter({
+    {
+	    7 /*t7*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+	    7 /*8th slot of the heap*/},
 	});
 
     // 模型纹理的采样器
@@ -1137,8 +1195,8 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 {
 	// #DXR Extra: Perspective Camera
 	// Create a SRV/UAV/CBV descriptor heap. We need 3 entries - 1 SRV for the TLAS, 1 UAV for the
-	// ray tracing output and 1 CBV for the camera matrices 2 SRV for model 1 SRV for skybox
-    m_srvUavHeap = nv_helpers_dx12::CreateDescriptorHeap( m_device.Get(), 7, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true); 
+	// ray tracing output and 1 CBV for the camera matrices 4 SRV for model 1 SRV for skybox
+    m_srvUavHeap = nv_helpers_dx12::CreateDescriptorHeap( m_device.Get(), 9, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true); 
     
     m_srvUavHeap->SetName(L"m_srvUavHeap");
 
@@ -1147,7 +1205,7 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
     // descriptors directly 
     D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
     
-    // Create the UAV. Based on the root signature we created it is the first 
+    // Create the UAV. Based on the root signature we created it is the first +
     // entry. The Create*View methods write the view information directly into 
     // srvHandle 
     D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
@@ -1158,7 +1216,7 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 	// Ray tracing acceleration structure, accessed as a SRV
 	// RaytracingAccelerationStructure SceneBVH : register(t0);
     // Add the Top Level AS SRV right after the ray tracing output buffer 
-    srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize( D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
     
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc; srvDesc.Format = DXGI_FORMAT_UNKNOWN;
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE; 
@@ -1179,7 +1237,7 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 	// }
 	// #DXR Extra: Perspective Camera
     // Add the constant buffer for the camera after the TLAS
-	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 
 	// Describe and create a constant buffer view for the camera
 	D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
@@ -1190,7 +1248,7 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 	// Slot3 - 对应Hit.hlsl中的：
     // StructuredBuffer<InstanceProperties> instanceProperties : register(t2);
 	//# DXR Extra - Simple Lighting
-	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -1204,35 +1262,55 @@ void D3D12HelloRaytracing::CreateShaderResourceHeap()
 
 	// Slot4 - 对应Hit.hlsl中的：
     // Texture2D texture1 : register(t4);
-	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 
     // 创建模型纹理的SRV
 	D3D12_RESOURCE_DESC textureDesc = m_ModelTexture1->GetDesc();
 
-    auto mipLevels = 0;
-
-    auto shaderResourceViewDesc = createShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURE2D, textureDesc.Format, textureDesc.MipLevels);
+    auto shaderResourceViewDesc = CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURE2D, textureDesc.Format, textureDesc.MipLevels);
 
 	m_device->CreateShaderResourceView(m_ModelTexture1.Get(), &shaderResourceViewDesc, srvHandle);
 
 	// Slot5 - 对应Hit.hlsl中的：
     // Texture2D texture2 : register(t5);
-	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 
-	// 创建天空盒的SRV
+	// 创建模型纹理的SRV
 	textureDesc = m_ModelTexture2->GetDesc();
 
-    shaderResourceViewDesc = createShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURE2D, textureDesc.Format, textureDesc.MipLevels);
+    shaderResourceViewDesc = CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURE2D, textureDesc.Format, textureDesc.MipLevels);
 
-	m_device->CreateShaderResourceView(m_ModelTexture2.Get(), &shaderResourceViewDesc, srvHandle);
+    m_device->CreateShaderResourceView(m_ModelTexture2.Get(), &shaderResourceViewDesc, srvHandle);
 
-	// Slot6 - 对应Miss.hlsl中的：
-    // Texture2D environmentTexture : register(t0);
-	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	// Slot6 - 对应Hit.hlsl中的：
+    // Texture2D texture3 : register(t6);
+	srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+	// 创建模型纹理的SRV
+	textureDesc = m_ModelTexture3->GetDesc();
+
+    shaderResourceViewDesc = CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURE2D, textureDesc.Format, textureDesc.MipLevels);
+
+	m_device->CreateShaderResourceView(m_ModelTexture3.Get(), &shaderResourceViewDesc, srvHandle);
+
+	// Slot7 - 对应Hit.hlsl中的：
+    // Texture2D texture4 : register(t7);
+	srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+	// 创建模型纹理的SRV
+	textureDesc = m_ModelTexture4->GetDesc();
+
+	shaderResourceViewDesc = CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURE2D, textureDesc.Format, textureDesc.MipLevels);
+
+	m_device->CreateShaderResourceView(m_ModelTexture4.Get(), &shaderResourceViewDesc, srvHandle);
+
+	// Slot8 - 对应Miss.hlsl中的：
+    // Texture2D environmentTexture : register(t0, space1);
+	srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
 
     textureDesc = m_skyboxTexture->GetDesc();
 
-	shaderResourceViewDesc = createShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURECUBE, textureDesc.Format, textureDesc.MipLevels);
+	shaderResourceViewDesc = CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURECUBE, textureDesc.Format, textureDesc.MipLevels);
 
 	m_device->CreateShaderResourceView(m_skyboxTexture.Get(), &shaderResourceViewDesc, srvHandle);
 }
@@ -1256,13 +1334,14 @@ void D3D12HelloRaytracing::CreateShaderBindingTable()
     // shaders without root parameters 
 	D3D12_GPU_DESCRIPTOR_HANDLE srvUavHeapHandle = m_srvUavHeap->GetGPUDescriptorHandleForHeapStart();
 	D3D12_GPU_DESCRIPTOR_HANDLE skyboxSamplerHeapHandle = m_skyboxSamplerDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+    CD3DX12_GPU_DESCRIPTOR_HANDLE textureHeapHandle(m_srvUavHeap->GetGPUDescriptorHandleForHeapStart(), 4, m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
 
 	auto heapPointer = reinterpret_cast<uint64_t*>(srvUavHeapHandle.ptr);
 
 	auto skyboxSamplerHeapPointer = reinterpret_cast<uint64_t*>(skyboxSamplerHeapHandle.ptr);
 
-	auto skyboxTextureHeapPointer1 = reinterpret_cast<uint64_t*>(srvUavHeapHandle.ptr + m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * 4);
-	auto skyboxTextureHeapPointer2 = reinterpret_cast<uint64_t*>(srvUavHeapHandle.ptr + m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * 5);
+	auto textureHeapPointer1 = reinterpret_cast<uint64_t*>(textureHeapHandle.ptr);
+	auto textureHeapPointer2 = reinterpret_cast<uint64_t*>(textureHeapHandle.ptr);
 
     // The ray generation only uses heap data 
     m_sbtHelper.AddRayGenerationProgram(L"RayGen", {heapPointer});
@@ -1313,12 +1392,27 @@ void D3D12HelloRaytracing::CreateShaderBindingTable()
     // 将Shader中第一张纹理引用对应起来，那么加入第二张纹理之后为何就需要显式传入纹理的ID3D12Resource指针呢？
     // 另外，不管是有一个还是多个Texture Sampler, 这里也不需要指定输入参数，只要在根签名中声明好，堆中创建好，
     // Shader 中就可以直接访问，暂时先这样，待深入学习的时候再追究其中的细节吧
-	inputData.push_back(heapPointer);
-	inputData.push_back((void*)(m_ModelTexture1->GetGPUVirtualAddress()));
-	inputData.push_back((void*)(m_ModelTexture2->GetGPUVirtualAddress()));
+    //
+    // 再次更新：上面提到的传入纹理的ID3D12Resource指针实际上是无效的，因为对于非Buffer类型的资源(比如说纹理)，
+    // GetGPUVirtualAddress的返回值为nullptr，也就是说这里实际上是传入了3个nullptr，但是纹理数据是可以正常读取的，
+	// 这就更让人迷惑了…………发现这个问题是看到 Debug Output 输出了警告信息：
+    // D3D12 WARNING: ID3D12Resource2::ID3D12Resource::GetGPUVirtualAddress: GetGPUVirtualAddress returns 
+    // NULL for non-buffer resources. [ MISCELLANEOUS WARNING #745: GETGPUVIRTUALADDRESS_INVALID_RESOURCE_DIMENSION]
+    // 否则真的被误导了，所以这到底是为啥(捂脸)？
+    // 按照DXR官方文档，inputData中参数的顺序应该和根签名还有Shader中的引用相匹配，难道对于底层实现来说，这里传入nullptr
+    // 只是起到占位符的作用，实际上是根据参数的个数和顺序来从描述符堆中来解析取用的吗？但是进一步调试更诡异的行为出现了，
+    // 为了测试又添加了一张纹理，这次我干脆啥都不传了，你猜结果怎样？在Shader中texture1和texture3可以正常显示，texture2
+    // 是黑色的…………
+	//inputData.push_back(heapPointer);
+	//inputData.push_back(nullptr);
+	//inputData.push_back(nullptr);
+	//inputData.push_back(nullptr);
+	//inputData.push_back((void*)(m_ModelTexture1->GetGPUVirtualAddress()));
+	//inputData.push_back((void*)(m_ModelTexture2->GetGPUVirtualAddress()));
 	//inputData.push_back(skyboxSamplerHeapPointer);
 
 	m_sbtHelper.AddHitGroup(L"ModelHitGroup", inputData);
+
     // #DXR Extra - Another ray type
     m_sbtHelper.AddHitGroup(L"ShadowHitGroup", {});
 
@@ -1434,7 +1528,7 @@ void D3D12HelloRaytracing::CreateCameraBuffer()
     m_cameraBuffer = nv_helpers_dx12::CreateBuffer( m_device.Get(), m_cameraBufferSize, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ, nv_helpers_dx12::kUploadHeapProps); 
     
     // Create a descriptor heap that will be used by the rasterization shaders
-    m_constantbufferHeap = nv_helpers_dx12::CreateDescriptorHeap( m_device.Get(), static_cast<uint32_t>(transforms.size() + 1), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
+    m_constantbufferHeap = nv_helpers_dx12::CreateDescriptorHeap( m_device.Get(), static_cast<uint32_t>(transforms.size() + 2), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
     
     // Describe and create the constant buffer view. 
     D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {}; 
@@ -1483,6 +1577,13 @@ void D3D12HelloRaytracing::UpdateCameraBuffer()
     XMVECTOR det;
     matrices[2] = XMMatrixInverse(&det, matrices[0]);
     matrices[3] = XMMatrixInverse(&det, matrices[1]);
+
+    auto view = matrices[0];
+	view.r[3] = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+
+    //matrices[0] = view;
+
+    m_modelViewProjection = XMMatrixIdentity() * view * matrices[1];
     
     // Copy the matrix contents 
     memcpy_s(m_cameraBufferData, m_cameraBufferSize, matrices.data(), m_cameraBufferSize);
@@ -1540,6 +1641,8 @@ void D3D12HelloRaytracing::CreateConstantBuffer()
 	// descriptors directly 
     constantBufferDatas.resize(m_constantBuffers.size());
 
+    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_constantbufferHeap->GetCPUDescriptorHandleForHeapStart();
+
     for (auto i = 0; i < m_constantBuffers.size(); i++)
     {
 		// Describe and create the constant buffer view. 
@@ -1547,13 +1650,22 @@ void D3D12HelloRaytracing::CreateConstantBuffer()
 		cbvDesc.BufferLocation = m_constantBuffers[i]->GetGPUVirtualAddress();
 		cbvDesc.SizeInBytes = m_constantBufferSize;
 
-		D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_constantbufferHeap->GetCPUDescriptorHandleForHeapStart();
-        srvHandle.ptr += (i + 1) * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
 		m_device->CreateConstantBufferView(&cbvDesc, srvHandle);
 
 		// Copy the matrix contents 
         ThrowIfFailed(m_constantBuffers[i]->Map(0, nullptr, (void**)&constantBufferDatas[i]));
     }
+
+	// 创建模型纹理的SRV
+	D3D12_RESOURCE_DESC textureDesc = m_skyboxTexture->GetDesc();
+
+	auto shaderResourceViewDesc = CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION_TEXTURECUBE, textureDesc.Format, textureDesc.MipLevels);
+
+    srvHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+	m_device->CreateShaderResourceView(m_skyboxTexture.Get(), &shaderResourceViewDesc, srvHandle);
 }
 
 void D3D12HelloRaytracing::UpdateConstantBuffer()
@@ -1564,7 +1676,7 @@ void D3D12HelloRaytracing::UpdateConstantBuffer()
     }
 }
 
-void D3D12HelloRaytracing::createModelVertexBuffer()
+void D3D12HelloRaytracing::createModelVertexBuffer(const DXModel& model, D3D12_VERTEX_BUFFER_VIEW& vertexBufferView)
 {
     const uint32_t vertexBufferSize = model.mesh.vertexBufferSize;
 
@@ -1588,12 +1700,12 @@ void D3D12HelloRaytracing::createModelVertexBuffer()
     m_modelVertexBuffer->Unmap(0, nullptr);
 
 	// Initialize the vertex buffer view.
-	m_modelVertexBufferView.BufferLocation = m_modelVertexBuffer->GetGPUVirtualAddress();
-    m_modelVertexBufferView.StrideInBytes = sizeof(Vertex);
-    m_modelVertexBufferView.SizeInBytes = vertexBufferSize;
+    vertexBufferView.BufferLocation = m_modelVertexBuffer->GetGPUVirtualAddress();
+    vertexBufferView.StrideInBytes = sizeof(Vertex);
+    vertexBufferView.SizeInBytes = vertexBufferSize;
 }
 
-void D3D12HelloRaytracing::createModelIndexBuffer()
+void D3D12HelloRaytracing::createModelIndexBuffer(const DXModel& model, D3D12_INDEX_BUFFER_VIEW& indexBufferView)
 {
 	const uint32_t indexBufferSize = model.mesh.indexBufferSize;
 
@@ -1617,9 +1729,9 @@ void D3D12HelloRaytracing::createModelIndexBuffer()
     m_modelIndexBuffer->Unmap(0, nullptr);
 
 	// Initialize the vertex buffer view.
-	m_modelIndexBufferView.BufferLocation = m_modelIndexBuffer->GetGPUVirtualAddress();
-    m_modelIndexBufferView.Format = DXGI_FORMAT_R32_UINT;
-    m_modelIndexBufferView.SizeInBytes = indexBufferSize;
+    indexBufferView.BufferLocation = m_modelIndexBuffer->GetGPUVirtualAddress();
+    indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+    indexBufferView.SizeInBytes = indexBufferSize;
 }
 
 //-----------------------------------------------------------------------------
@@ -1693,7 +1805,7 @@ void D3D12HelloRaytracing::UpdateInstancePropertiesBuffer()
 	}
 }
 
-void D3D12HelloRaytracing::loadDDSTexture(const std::wstring& path, ComPtr<ID3D12Resource>& texture)
+uint64_t D3D12HelloRaytracing::loadDDSTexture(const std::wstring& path, ComPtr<ID3D12Resource>& texture)
 {
 	//加载Skybox的 Cube Map 需要的变量
 	std::unique_ptr<uint8_t[]> ddsData;
@@ -1769,6 +1881,8 @@ void D3D12HelloRaytracing::loadDDSTexture(const std::wstring& path, ComPtr<ID3D1
     m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get());
 
     WaitForPreviousFrame();
+
+    return textureUploadBufferSize;
 }
 
 void D3D12HelloRaytracing::createSkyboxSamplerDescriptorHeap()
@@ -1780,7 +1894,7 @@ void D3D12HelloRaytracing::createSkyboxSamplerDescriptorHeap()
 
 void D3D12HelloRaytracing::createSkyboxSampler()
 {
-	CD3DX12_CPU_DESCRIPTOR_HANDLE skyboxSamplerDescriptorHeapHandle(m_skyboxSamplerDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	CD3DX12_CPU_DESCRIPTOR_HANDLE skyboxSamplerDescriptorHandle(m_skyboxSamplerDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 	D3D12_SAMPLER_DESC skyboxSamplerDesc{};
 	skyboxSamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -1798,9 +1912,9 @@ void D3D12HelloRaytracing::createSkyboxSampler()
 	skyboxSamplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 	skyboxSamplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 
-	m_device->CreateSampler(&skyboxSamplerDesc, skyboxSamplerDescriptorHeapHandle);
+	m_device->CreateSampler(&skyboxSamplerDesc, skyboxSamplerDescriptorHandle);
 
-    skyboxSamplerDescriptorHeapHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+    skyboxSamplerDescriptorHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
 	// Sampler 2
 	skyboxSamplerDesc.BorderColor[0] = 0.0f;
@@ -1811,10 +1925,10 @@ void D3D12HelloRaytracing::createSkyboxSampler()
 	skyboxSamplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 	skyboxSamplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
 
-	m_device->CreateSampler(&skyboxSamplerDesc, skyboxSamplerDescriptorHeapHandle);
+	m_device->CreateSampler(&skyboxSamplerDesc, skyboxSamplerDescriptorHandle);
 }
 
-D3D12_SHADER_RESOURCE_VIEW_DESC D3D12HelloRaytracing::createShaderResourceViewDesc(D3D12_SRV_DIMENSION ViewDimension, DXGI_FORMAT format, uint32_t mipLevels)
+D3D12_SHADER_RESOURCE_VIEW_DESC D3D12HelloRaytracing::CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION ViewDimension, DXGI_FORMAT format, uint32_t mipLevels)
 {
 	D3D12_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc{};
     shaderResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1832,4 +1946,89 @@ D3D12_SHADER_RESOURCE_VIEW_DESC D3D12HelloRaytracing::createShaderResourceViewDe
 	}
 
     return shaderResourceViewDesc;
+}
+
+void D3D12HelloRaytracing::CreateSkyboxGraphicsPipelineState()
+{
+	TCHAR* shaderFileName = L"Shaders/Skybox.hlsl";
+
+	ComPtr<ID3DBlob> skyboxVertexShader;
+	ComPtr<ID3DBlob> skyboxPixelShader;
+
+#if defined(_DEBUG)
+	uint32_t compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+	uint32_t compileFlags = 0;
+#endif
+
+	ThrowIfFailed(D3DCompileFromFile(shaderFileName, nullptr, nullptr, "VSMain", "vs_5_1", compileFlags, 0, &skyboxVertexShader, nullptr));
+    ThrowIfFailed(D3DCompileFromFile(shaderFileName, nullptr, nullptr, "PSMain", "ps_5_1", compileFlags, 0, &skyboxPixelShader, nullptr));
+
+	// 天空盒子只有顶点，只有位置参数
+	D3D12_INPUT_ELEMENT_DESC skyboxInputElementDesc[] =
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	};
+
+	// 创建天空盒的PSO, 注意天空盒子不需要深度测试
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyboxGraphicsPipelineStateDesc{};
+	skyboxGraphicsPipelineStateDesc.DepthStencilState.DepthEnable = FALSE;
+	skyboxGraphicsPipelineStateDesc.DepthStencilState.StencilEnable = FALSE;
+	skyboxGraphicsPipelineStateDesc.InputLayout = { skyboxInputElementDesc, _countof(skyboxInputElementDesc) };
+	skyboxGraphicsPipelineStateDesc.pRootSignature = m_rootSignature.Get();
+	skyboxGraphicsPipelineStateDesc.VS = CD3DX12_SHADER_BYTECODE(skyboxVertexShader.Get());
+	skyboxGraphicsPipelineStateDesc.PS = CD3DX12_SHADER_BYTECODE(skyboxPixelShader.Get());
+
+	//explicit CD3DX12_RASTERIZER_DESC(CD3DX12_DEFAULT) noexcept
+	//{
+	//	FillMode = D3D12_FILL_MODE_SOLID;
+	//	CullMode = D3D12_CULL_MODE_BACK;
+	//	FrontCounterClockwise = FALSE;
+	//	DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+	//	DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+	//	SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+	//	DepthClipEnable = TRUE;
+	//	MultisampleEnable = FALSE;
+	//	AntialiasedLineEnable = FALSE;
+	//	ForcedSampleCount = 0;
+	//	ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+	//}
+	skyboxGraphicsPipelineStateDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	skyboxGraphicsPipelineStateDesc.RasterizerState.FrontCounterClockwise = FALSE;
+
+	//explicit CD3DX12_BLEND_DESC(CD3DX12_DEFAULT) noexcept
+	//{
+	//    AlphaToCoverageEnable = FALSE;
+	//    IndependentBlendEnable = FALSE;
+	//    const D3D12_RENDER_TARGET_BLEND_DESC defaultRenderTargetBlendDesc =
+	//    {
+	//        FALSE,FALSE,
+	//        D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+	//        D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+	//        D3D12_LOGIC_OP_NOOP,
+	//        D3D12_COLOR_WRITE_ENABLE_ALL,
+	//    };
+	//    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+	//        RenderTarget[i] = defaultRenderTargetBlendDesc;
+	//}
+	skyboxGraphicsPipelineStateDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	//skyboxGraphicsPipelineStateDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	//skyboxGraphicsPipelineStateDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+	skyboxGraphicsPipelineStateDesc.SampleMask = UINT_MAX;
+	skyboxGraphicsPipelineStateDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	skyboxGraphicsPipelineStateDesc.NumRenderTargets = 1;
+	skyboxGraphicsPipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	skyboxGraphicsPipelineStateDesc.SampleDesc.Count = 1;
+
+	ThrowIfFailed(m_device->CreateGraphicsPipelineState(&skyboxGraphicsPipelineStateDesc, IID_PPV_ARGS(&m_skyboxGraphicsPipelineState)));
+}
+
+void D3D12HelloRaytracing::createSkyboxVertexBuffer(const DXModel& model)
+{
+
+}
+
+void D3D12HelloRaytracing::createSkyboxIndexBuffer(const DXModel& model)
+{
+
 }

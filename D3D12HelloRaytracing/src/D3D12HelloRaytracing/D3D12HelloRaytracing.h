@@ -41,7 +41,7 @@ struct Vertex
 
 struct ConstantBuffer
 {
-    XMFLOAT4X4 model;
+    XMMATRIX model;
 };
 
 struct InstanceProperties
@@ -215,13 +215,14 @@ private:
 
     std::vector<ConstantBuffer*> constantBufferDatas;
 
-    void createModelVertexBuffer();
-    void createModelIndexBuffer();
+	void createModelVertexBuffer(const DXModel& model, D3D12_VERTEX_BUFFER_VIEW& vertexBufferView);
+    void createModelIndexBuffer(const DXModel& model, D3D12_INDEX_BUFFER_VIEW& indexBufferView);
 	ComPtr<ID3D12Resource> m_modelVertexBuffer;
 	ComPtr<ID3D12Resource> m_modelIndexBuffer;
     D3D12_VERTEX_BUFFER_VIEW m_modelVertexBufferView;
     D3D12_INDEX_BUFFER_VIEW m_modelIndexBufferView;
     DXModel model;
+    DXModel skybox;
 
 	// #DXR Extra: Depth Buffering
 	void CreateDepthBuffer();
@@ -237,15 +238,29 @@ private:
 	ComPtr<IDxcBlob> m_shadowLibrary;
 	ComPtr<ID3D12RootSignature> m_shadowRootSignature;
 
-    void loadDDSTexture(const std::wstring& path, ComPtr<ID3D12Resource>& texture);
+    uint64_t loadDDSTexture(const std::wstring& path, ComPtr<ID3D12Resource>& texture);
     void createSkyboxSamplerDescriptorHeap();
     void createSkyboxSampler();
 	ComPtr<ID3D12Heap> m_textureUploadHeap;
 	ComPtr<ID3D12Resource> m_ModelTexture1;
 	ComPtr<ID3D12Resource> m_ModelTexture2;
+	ComPtr<ID3D12Resource> m_ModelTexture3;
+	ComPtr<ID3D12Resource> m_ModelTexture4;
 	ComPtr<ID3D12Resource> m_skyboxTexture;
 	ComPtr<ID3D12Resource> m_textureUploadBuffer;
 	ComPtr<ID3D12DescriptorHeap> m_skyboxSamplerDescriptorHeap;
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC createShaderResourceViewDesc(D3D12_SRV_DIMENSION ViewDimension, DXGI_FORMAT format, uint32_t mipLevels);
+    D3D12_SHADER_RESOURCE_VIEW_DESC CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION ViewDimension, DXGI_FORMAT format, uint32_t mipLevels);
+
+	void CreateSkyboxGraphicsPipelineState();
+	void createSkyboxVertexBuffer(const DXModel& model);
+	void createSkyboxIndexBuffer(const DXModel& model);
+	D3D12_VERTEX_BUFFER_VIEW m_skyboxVertexBufferView{};
+	D3D12_INDEX_BUFFER_VIEW m_skyboxIndexBufferView{};
+	ComPtr<ID3D12PipelineState> m_skyboxGraphicsPipelineState;
+    XMMATRIX m_modelViewProjection;
+
+    ComPtr<ID3D12RootSignature> m_globalRootSignature;
+
+    uint32_t m_SRVCBVUAVDescriptorHandleIncrementSize;
 };

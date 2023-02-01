@@ -18,7 +18,7 @@ cbuffer CameraParams : register(b0)
 
 cbuffer Transform : register(b1)
 { 
-    float4x4 model; 
+    float4x4 model;
 }
 
 struct VSInput
