@@ -253,13 +253,12 @@ private:
     D3D12_SHADER_RESOURCE_VIEW_DESC CreateShaderResourceViewDesc(D3D12_SRV_DIMENSION ViewDimension, DXGI_FORMAT format, uint32_t mipLevels);
 
 	void CreateSkyboxGraphicsPipelineState();
-	void createSkyboxVertexBuffer(const DXModel& model);
-	void createSkyboxIndexBuffer(const DXModel& model);
 	D3D12_VERTEX_BUFFER_VIEW m_skyboxVertexBufferView{};
 	D3D12_INDEX_BUFFER_VIEW m_skyboxIndexBufferView{};
 	ComPtr<ID3D12PipelineState> m_skyboxGraphicsPipelineState;
     XMMATRIX m_modelViewProjection;
 
+    void CreateGlobalRootSignature();
     ComPtr<ID3D12RootSignature> m_globalRootSignature;
 
     uint32_t m_SRVCBVUAVDescriptorHandleIncrementSize;

@@ -173,12 +173,12 @@ ID3D12RootSignature* RootSignatureGenerator::Generate(ID3D12Device* device, bool
   // Set the flags of the signature. By default root signatures are global, for example for vertex
   // and pixel shaders. For raytracing shaders the root signatures are local.
   rootDesc.Flags =
-      isLocal ? D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE : D3D12_ROOT_SIGNATURE_FLAG_NONE;
+      isLocal ? D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE : D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
   // Create the root signature from its descriptor
   ID3DBlob* pSigBlob;
   ID3DBlob* pErrorBlob;
-  HRESULT hr = D3D12SerializeRootSignature(&rootDesc, D3D_ROOT_SIGNATURE_VERSION_1_0, &pSigBlob,
+  HRESULT hr = D3D12SerializeRootSignature(&rootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &pSigBlob,
                                            &pErrorBlob);
   if (FAILED(hr))
   {

@@ -22,13 +22,19 @@ StructuredBuffer<InstanceProperties> instanceProperties : register(t2);
 // Raytracing acceleration structure, accessed as a SRV
 RaytracingAccelerationStructure SceneBVH : register(t3);
 
-// TextureCube environmentTexture : register(t4);
-Texture2D texture1 : register(t4);
-Texture2D texture2 : register(t5);
-Texture2D texture3 : register(t6);
-Texture2D texture4 : register(t7);
-SamplerState textureSampler1 : register(s0);
-SamplerState textureSampler2 : register(s1);
+// Texture2D texture1 : register(t4);
+// Texture2D texture2 : register(t5);
+// Texture2D texture3 : register(t6);
+// Texture2D texture4 : register(t7);
+// SamplerState textureSampler1 : register(s0);
+// SamplerState textureSampler2 : register(s1);
+
+Texture2D texture1 : register(t0, space1);
+Texture2D texture2 : register(t1, space1);
+Texture2D texture3 : register(t2, space1);
+Texture2D texture4 : register(t3, space1);
+SamplerState textureSampler1 : register(s0, space1);
+SamplerState textureSampler2 : register(s1, space1);
 
 // Logically, the ray assumes it is occluded unless the miss
 // shader executes, when we definitively know the ray is unoccluded. This allows us to
@@ -273,8 +279,8 @@ void ModelClosestHit(inout HitInfo payload, Attributes attributes)
     
     if (instanceProperties[InstanceID()].hasTexture)
     {
-       textureColor = texture2.SampleLevel(textureSampler2, texcoord, 0);
-        // textureColor = texture2.Load(int3(coord, 0));
+       textureColor = texture2.SampleLevel(textureSampler1, texcoord, 0);
+    //    textureColor = texture1.Load(int3(coord, 0));
     }
 
     payload.colorAndDistance = float4(ambient * 0.1f + hitColor * diffuse * textureColor.rgb * 0.9f, RayTCurrent());

@@ -358,6 +358,7 @@ void D3D12HelloRaytracing::LoadAssets()
     createSkyboxSamplerDescriptorHeap();
     createSkyboxSampler();
     CreateSkyboxGraphicsPipelineState();
+    CreateGlobalRootSignature();
 }
 
 // Update frame-based values.
@@ -574,6 +575,30 @@ void D3D12HelloRaytracing::PopulateCommandList()
         // structure, as well as the ray tracing output
 		std::vector<ID3D12DescriptorHeap*> heaps = { m_srvUavHeap.Get(), m_skyboxSamplerDescriptorHeap.Get() };
 		m_commandList->SetDescriptorHeaps(static_cast<uint32_t>(heaps.size()), heaps.data());
+
+		m_commandList->SetComputeRootSignature(m_globalRootSignature.Get());
+
+		auto shaderResourceViewDescriptorHandle = m_srvUavHeap->GetGPUDescriptorHandleForHeapStart();
+
+		shaderResourceViewDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize * 4;
+
+		m_commandList->SetComputeRootDescriptorTable(0, shaderResourceViewDescriptorHandle);
+
+		shaderResourceViewDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+		m_commandList->SetComputeRootDescriptorTable(1, shaderResourceViewDescriptorHandle);
+
+		shaderResourceViewDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+		m_commandList->SetComputeRootDescriptorTable(2, shaderResourceViewDescriptorHandle);
+
+		shaderResourceViewDescriptorHandle.ptr += m_SRVCBVUAVDescriptorHandleIncrementSize;
+
+		m_commandList->SetComputeRootDescriptorTable(3, shaderResourceViewDescriptorHandle);
+
+		auto samplerDescriptorHandle = m_skyboxSamplerDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+		m_commandList->SetComputeRootDescriptorTable(4, samplerDescriptorHandle);
 
 		// On the last frame, the ray tracing output was used as a copy source, to
         // copy its contents into the render target. Now we need to transition it to
@@ -999,59 +1024,76 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateMissRootSignature()
 // The miss shader communicates only through the ray payload, and therefore
 // does not require any resources
 //
+//ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateHitRootSignature()
+//{
+//    // 和常规的Shader不一样，DXR的Shader中引用根签名的参数，不需要调用SetGraphicsRootDescriptorTable()
+//    // DXR的Shader和资源的绑定是通过 Shader Binding Table 来完成的
+//    nv_helpers_dx12::RootSignatureGenerator rootSignatureGenerator;
+//
+//    // 这里创建的三个根参数在Shader中都是StructuredBuffer，StructuredBuffer 可以像 cbuffer 一样
+//    // 通过 D3D12_ROOT_PARAMETER_TYPE_SRV 绑定资源。所以不必创建 Shader Resource View
+//	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 0);
+//	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 1);
+//	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 2);
+//
+//	// #DXR Extra - Another ray type
+//    // Add a single range pointing to the TLAS in the heap
+//    rootSignatureGenerator.AddHeapRangesParameter(
+//    {
+//	    {
+//            3 /*t3*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+//		    1 /*2nd slot of the heap*/
+//        },
+//		{
+//		    4 /*t4*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+//		    4 /*5th slot of the heap*/
+//        },
+//		{
+//		    5 /*t5*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+//		    5 /*6th slot of the heap*/
+//        },
+//		{
+//		    6 /*t6*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+//		    6 /*7th slot of the heap*/
+//        },
+//		{
+//		    7 /*t7*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+//		    7 /*8th slot of the heap*/
+//        },
+//	});
+//
+//    // 模型纹理的采样器
+//	rootSignatureGenerator.AddHeapRangesParameter({
+//    {   0 /*s0*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+//        0 /*1st slot of the heap*/},
+//	{   1 /*s1*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+//		1 /*2nd slot of the heap*/},
+//	});
+//
+//    return rootSignatureGenerator.Generate(m_device.Get(), true);
+//}
+
 ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateHitRootSignature()
 {
-    // 和常规的Shader不一样，DXR的Shader中引用根签名的参数，不需要调用SetGraphicsRootDescriptorTable()
-    // DXR的Shader和资源的绑定是通过 Shader Binding Table 来完成的
-    nv_helpers_dx12::RootSignatureGenerator rootSignatureGenerator;
+	// 和常规的Shader不一样，DXR的Shader中引用根签名的参数，不需要调用SetGraphicsRootDescriptorTable()
+	// DXR的Shader和资源的绑定是通过 Shader Binding Table 来完成的
+	nv_helpers_dx12::RootSignatureGenerator rootSignatureGenerator;
 
-    // 这里创建的三个根参数在Shader中都是StructuredBuffer，StructuredBuffer 可以像 cbuffer 一样
-    // 通过 D3D12_ROOT_PARAMETER_TYPE_SRV 绑定资源。所以不必创建 Shader Resource View
+	// 这里创建的三个根参数在Shader中都是StructuredBuffer，StructuredBuffer 可以像 cbuffer 一样
+	// 通过 D3D12_ROOT_PARAMETER_TYPE_SRV 绑定资源。所以不必创建 Shader Resource View
 	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 0);
 	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 1);
 	rootSignatureGenerator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV, 2);
 
 	// #DXR Extra - Another ray type
-    // Add a single range pointing to the TLAS in the heap
-    rootSignatureGenerator.AddHeapRangesParameter({
+	// Add a single range pointing to the TLAS in the heap
+	rootSignatureGenerator.AddHeapRangesParameter({
 	{
-        3 /*t3*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		3 /*t3*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
 		1 /*2nd slot of the heap*/},
 	});
 
-	rootSignatureGenerator.AddHeapRangesParameter({
-	{
-        4 /*t4*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-	    4 /*5th slot of the heap*/},
-	});
-
-	rootSignatureGenerator.AddHeapRangesParameter({
-    {
-	    5 /*t5*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-	    5 /*6th slot of the heap*/},
-	});
-
-	rootSignatureGenerator.AddHeapRangesParameter({
-	{
-		6 /*t6*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-		6 /*7th slot of the heap*/},
-	});
-
-	rootSignatureGenerator.AddHeapRangesParameter({
-    {
-	    7 /*t7*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-	    7 /*8th slot of the heap*/},
-	});
-
-    // 模型纹理的采样器
-	rootSignatureGenerator.AddHeapRangesParameter({
-    {   0 /*s0*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
-        0 /*1st slot of the heap*/},
-	{   1 /*s1*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
-		1 /*2nd slot of the heap*/},
-	});
-
-    return rootSignatureGenerator.Generate(m_device.Get(), true);
+	return rootSignatureGenerator.Generate(m_device.Get(), true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1063,7 +1105,7 @@ ComPtr<ID3D12RootSignature> D3D12HelloRaytracing::CreateHitRootSignature()
 void D3D12HelloRaytracing::CreateRayTracingPipeline()
 {
     nv_helpers_dx12::RayTracingPipelineGenerator pipeline(m_device.Get()); 
-    
+
     // The pipeline contains the DXIL code of all the shaders potentially executed 
     // during the ray tracing process. This section compiles the HLSL code into a 
     // set of DXIL libraries. We chose to separate the code in several libraries 
@@ -1152,10 +1194,11 @@ void D3D12HelloRaytracing::CreateRayTracingPipeline()
     // #DXR Extra - Another ray type
 	pipeline.SetMaxRecursionDepth(2);
 
-	m_rayTracingStateObject = pipeline.Generate();
+	m_rayTracingStateObject = pipeline.Generate(m_globalRootSignature.GetAddressOf());
 	ThrowIfFailed(m_rayTracingStateObject->QueryInterface(IID_PPV_ARGS(&m_rayTracingStateObjectProperties)));
 }
 
+//-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 //
 // Allocate the buffer holding the ray tracing output, with the same size as the
@@ -1403,6 +1446,32 @@ void D3D12HelloRaytracing::CreateShaderBindingTable()
     // 只是起到占位符的作用，实际上是根据参数的个数和顺序来从描述符堆中来解析取用的吗？但是进一步调试更诡异的行为出现了，
     // 为了测试又添加了一张纹理，这次我干脆啥都不传了，你猜结果怎样？在Shader中texture1和texture3可以正常显示，texture2
     // 是黑色的…………
+    // 
+    // 查了半天，发现可能是CreateHitRootSignature()中创建SRV的方式有关，之前是每个SRV做一个单独的Range添加，现在是将所有
+    // SRV作为一整个Range添加，这样的写法texture1~texture4都能正常显示了
+	//rootSignatureGenerator.AddHeapRangesParameter(
+	//{
+	//	{
+	//		3 /*t3*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+	//		1 /*2nd slot of the heap*/
+	//	},
+	//	{
+	//		4 /*t4*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+	//		4 /*5th slot of the heap*/
+	//	},
+	//	{
+	//		5 /*t5*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+	//		5 /*6th slot of the heap*/
+	//	},
+	//	{
+	//		6 /*t6*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+	//		6 /*7th slot of the heap*/
+	//	},
+	//	{
+	//		7 /*t7*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+	//		7 /*8th slot of the heap*/
+	//	},
+	//});
 	//inputData.push_back(heapPointer);
 	//inputData.push_back(nullptr);
 	//inputData.push_back(nullptr);
@@ -2023,12 +2092,68 @@ void D3D12HelloRaytracing::CreateSkyboxGraphicsPipelineState()
 	ThrowIfFailed(m_device->CreateGraphicsPipelineState(&skyboxGraphicsPipelineStateDesc, IID_PPV_ARGS(&m_skyboxGraphicsPipelineState)));
 }
 
-void D3D12HelloRaytracing::createSkyboxVertexBuffer(const DXModel& model)
+void D3D12HelloRaytracing::CreateGlobalRootSignature()
 {
+	nv_helpers_dx12::RootSignatureGenerator rootSignatureGenerator;
 
-}
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{
+		0 /*t0*/, 1, 1, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		0 /*1st slot of the table*/},
+	});
 
-void D3D12HelloRaytracing::createSkyboxIndexBuffer(const DXModel& model)
-{
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{
+		1 /*t1*/, 1, 1, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		0 /*2nd slot of the table*/},
+	});
 
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{
+		2 /*t2*/, 1, 1, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		0 /*3rd slot of the table*/},
+	});
+
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{
+		3 /*t3*/, 1, 1, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		0 /*4th slot of the table*/},
+	});
+
+	// 模型纹理的采样器
+	rootSignatureGenerator.AddHeapRangesParameter({
+	{   0 /*s0*/, 1, 1, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+		0 /*1st slot of the table*/},
+	{   1 /*s1*/, 1, 1, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+		1 /*2nd slot of the table*/},
+	});
+
+	m_globalRootSignature = rootSignatureGenerator.Generate(m_device.Get(), false);
+
+	CD3DX12_ROOT_PARAMETER constantParameters[5]{};
+	CD3DX12_DESCRIPTOR_RANGE ranges[5]{};
+
+	ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1, 0);
+	ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 1, 0);
+	ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 1, 0);
+	ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3, 1, 0);
+	ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 2, 0, 1);
+
+	constantParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+	constantParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+	constantParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);
+	constantParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);
+	constantParameters[4].InitAsDescriptorTable(1, &ranges[4], D3D12_SHADER_VISIBILITY_ALL);
+
+	// Create an empty root signature.
+	{
+		CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+		rootSignatureDesc.Init(_countof(constantParameters), constantParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+		ComPtr<ID3DBlob> signature;
+		ComPtr<ID3DBlob> error;
+		ThrowIfFailed(D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
+		//ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_globalRootSignature)));
+	}
 }
