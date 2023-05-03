@@ -338,9 +338,9 @@ void D3D12HelloRaytracing::LoadAssets()
     // Create a vertex buffer for a ground plane, similarly to the triangle definition above
 	CreatePlaneVB();
 
-    //model.load("Models/bunny.obj");
+    model.load("Models/bunny.obj");
 	//model.load("Models/dragon.obj");
-	model.load("Models/cube.obj");
+	//model.load("Models/cube.obj");
     skybox.load("Models/cube.obj");
 
     createModelVertexBuffer(model, m_modelVertexBufferView);
